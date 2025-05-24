@@ -1,15 +1,15 @@
-import os
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from flask import Flask, jsonify
+#import os
+#from googleapiclient.discovery import build
+#from googleapiclient.http import MediaFileUpload
+#from google_auth_oauthlib.flow import InstalledAppFlow
+#from google.auth.transport.requests import Request
+#from google.oauth2.credentials import Credentials
+#from flask import Flask, jsonify
 
-app = Flask(__name__)
+#app = Flask(__name__)
 
 # Google Drive API setup
-SCOPES = ['https://www.googleapis.com/auth/drive.file']
+#SCOPES = ['https://www.googleapis.com/auth/drive.file']
 CREDENTIALS_FILE = 'credentials.json'
 TOKEN_FILE = 'token.json'
 BACKUP_FOLDER_ID = os.environ.get('DRIVE_FOLDER_ID')  # Set in Render environment variables
