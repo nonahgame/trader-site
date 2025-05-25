@@ -1,9 +1,9 @@
-
-flask==3.0.3
-gunicorn==23.0.0
-numpy==1.26.4
+flask==2.3.3
 pandas==2.2.2
-ccxt
+numpy==1.26.4
+ccxt==4.3.10
 pandas_ta==0.3.14b0
 python-telegram-bot==13.7
-requests
+requests==2.31.0
+python-dotenv==1.0.0
+gunicorn==22.0.0
