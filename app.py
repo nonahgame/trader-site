@@ -49,7 +49,7 @@ STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 61200))
 INTER_SECONDS = int(os.getenv("INTER_SECONDS", 60))  # Default to 60 if invalid
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "YOUR_GITHUB_TOKEN_HERE")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "your-username/your-repo")
-GITHUB_PATH = os.getenv("GITHUB_PATH", "data/renda_bot.db")
+GITHUB_PATH = os.getenv("GITHUB_PATH", "data/r_bot.db")  # database
 
 # GitHub API setup
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
@@ -177,9 +177,9 @@ last_valid_price = None
 # SQLite database setup
 def setup_database():
     global conn
-    db_path = 'renda_bot.db'
+    db_path = 'r_bot.db'   # database
     try:
-        if download_from_github('renda_bot.db', db_path):
+        if download_from_github('r_bot.db', db_path):    # database
             logger.info(f"Restored database from GitHub to {db_path}")
         else:
             logger.info(f"No existing database found. Creating new database at {db_path}")
