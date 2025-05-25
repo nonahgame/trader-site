@@ -1,6 +1,9 @@
-flask==2.3.2
-google-api-python-client==2.111.0
-google-auth-httplib2==0.2.0
-google-auth-oauthlib==1.2.0
-requests==2.31.0
-gunicorn==22.0.0
+
+flask==3.0.3
+gunicorn==23.0.0
+numpy==1.26.4
+pandas==2.2.2
+ccxt
+pandas_ta==0.3.14b0
+python-telegram-bot==13.7
+requests
