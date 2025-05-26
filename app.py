@@ -48,11 +48,11 @@ TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 2.0))
 STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 61200))
 INTER_SECONDS = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))  # Default to 60 if invalid
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
-GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "nonahgame/trader-site")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")  # database
 
 # GitHub API setup
-GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_TOKEN}/contents/{GITHUB_PATH}"  # GITHUB_REPO
+GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_TOKEN}/contents/{GITHUB_PATH}"
 HEADERS = {
     "Authorization": f"token {GITHUB_TOKEN}",
     "Accept": "application/vnd.github.v3+json"
@@ -60,17 +60,18 @@ HEADERS = {
 
 def upload_to_github(file_path, file_name):
     try:
-        if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_TOKEN":  # Your-GITHUB_TOKEN
+        if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_TOKEN":
             logger.error("GITHUB_TOKEN is not set or invalid.")
             return
-        if not GITHUB_REPO or GITHUB_REPO == "GITHUB_REPO":  # your-username/your-repo
-            logger.error("GITHUB_REPO is not set or invalid.")
+        if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_REPO":
+            logger.error("GITHUB_TOKEN is not set or invalid.")
             return
         if not GITHUB_PATH:
             logger.error("GITHUB_PATH is not set.")
             return
 
-        logger.debug(f"Uploading {file_name} to GitHub: {GITHUB_REPO}/{GITHUB_PATH}")
+        # Debug: Log the API URL and environment variables
+        logger.debug(f"Attempting to upload {file_name} to GitHub. GITHUB_API_URL: {GITHUB_API_URL}, GITHUB_TOKEN: {GITHUB_TOKEN}, GITHUB_PATH: {GITHUB_PATH}")
 
         # Read the file and encode it to base64
         with open(file_path, "rb") as f:
@@ -105,17 +106,17 @@ def upload_to_github(file_path, file_name):
 
 def download_from_github(file_name, destination_path):
     try:
-        if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_TOKEN":   #  YOUR_GITHUB_TOKEN_HERE
+        if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_TOKEN":
             logger.error("GITHUB_TOKEN is not set or invalid.")
             return False
-        if not GITHUB_REPO or GITHUB_REPO == "GITHUB_REPO":   # your-username/your-repo
-            logger.error("GITHUB_REPO is not set or invalid.")
+        if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_REPO":
+            logger.error("GITHUB_TOKEN is not set or invalid.")
             return False
         if not GITHUB_PATH:
             logger.error("GITHUB_PATH is not set.")
             return False
 
-        logger.debug(f"Downloading {file_name} from GitHub: {GITHUB_REPO}/{GITHUB_PATH}")
+        logger.debug(f"Downloading {file_name} from GitHub: {GITHUB_TOKEN}/{GITHUB_PATH}")
 
         # Fetch the file
         response = requests.get(GITHUB_API_URL, headers=HEADERS)
@@ -460,7 +461,7 @@ def trading_bot():
             df['High'] = df['High'].fillna(df['Close'])
             df['Low'] = df['Low'].fillna(df['Close'])
             df = add_technical_indicators(df)
-            logger.info(f"Initial df shape: {df.shape}")
+            logger.info(f'Initial df shape: {df.shape}')
             last_valid_price = df.iloc[-1][['Open', 'High', 'Low', 'Close', 'Volume']]
             last_valid_price['diff'] = last_valid_price['Close'] - last_valid_price['Open']
             break
@@ -472,7 +473,7 @@ def trading_bot():
                 logger.error(f"Failed to fetch historical data for {SYMBOL}.")
                 return
 
-    interval_seconds = INTER_SECONDS   #  used timing
+    interval_seconds = INTER_SECONDS
     logger.info(f"Using interval of {interval_seconds} seconds for timeframe {TIMEFRAME}")
 
     seconds_to_next, next_boundary = align_to_next_boundary(interval_seconds)
@@ -491,7 +492,7 @@ def trading_bot():
                 if position == "long":
                     latest_data = get_simulated_price()
                     if not pd.isna(latest_data['Close']):
-                        profit = latest_data['Close'] - buy_price
+                        profit = latest_data['Profit'] - buy_price
                         total_profit += profit
                         signal = create_signal("sell", latest_data['Close'], latest_data, df, profit, total_profit, "Bot stopped due to time limit")
                         store_signal(signal)
@@ -541,7 +542,7 @@ def trading_bot():
                         text = update.message.text.strip()
                         command_chat_id = update.message.chat.id
                         if text == '/help':
-                            bot.send_message(chat_id=command_chat_id, text="Commands: /help, /stop, /stopN, /start, /status, /performance, /count, /stats, /daily")
+                            bot.send_message(chat_id=command_chat_id, text="Commands: /help, /stop, /stopN, /start, /status, /performance, /count, /stats, /stats, /daily")
                         elif text == '/stop':
                             with bot_lock:
                                 if bot_active and position == "long":
@@ -571,7 +572,7 @@ def trading_bot():
                                     latest_signal = signal
                                     position = None
                                 bot_active = False
-                            bot.send_message(chat_id=command_chat_id, text=f"Bot paused for {pause_duration/60} minutes.")
+                            bot.send_message(chat_id=command_chat_id, text=f"Bot paused for {pause_duration}/60 minutes.")
                         elif text == '/start':
                             with bot_lock:
                                 if not bot_active:
@@ -588,10 +589,10 @@ def trading_bot():
                                 pause_start = None
                                 pause_duration = 0
                                 start_time = datetime.now()
-                                stop_time = start_time + pd.Timedelta(seconds=STOP_AFTER_SECONDS)
+                                stop_time = start_time + pd.Timedelta(minutes=STOP_AFTER_SECONDS)
                                 bot.send_message(chat_id=command_chat_id, text=f"Bot restarted with stop time: {stop_time.strftime('%Y-%m-%d %H:%M:%S')}")
                         elif text == '/status':
-                            status = "active" if bot_active else f"paused for {int(pause_duration - (datetime.now() - pause_start).total_seconds())} seconds" if pause_start else "stopped"
+                            status = "active' if bot_active else f"paused for {int(pause_duration - (datetime.now() - pause_start).total_seconds())} seconds" if pause_start else "stopped"
                             bot.send_message(chat_id=command_chat_id, text=status)
                         elif text == '/performance':
                             bot.send_message(chat_id=command_chat_id, text=get_performance())
@@ -600,266 +601,258 @@ def trading_bot():
                         elif text == '/stats':
                             bot.send_message(chat_id=command_chat_id, text="Trade statistics printed to console. Run display_trade_statistics in a separate cell.")
                     last_update_id = update.update_id + 1
-            except telegram.error.TelegramError as e:
-                logger.error(f"Error processing Telegram updates: {e}")
-                if "Conflict" in str(e):
-                    logger.warning("Webhook conflict detected. Attempting to delete webhook again.")
-                    if delete_webhook():
-                        logger.info("Webhook deleted successfully on retry.")
-                    else:
-                        logger.error("Failed to resolve webhook conflict. Skipping update cycle.")
-                        time.sleep(interval_seconds)
-                        continue
+                except telegram.error as e:
+                    logger.error(f"Error processing Telegram updates: {e}")
+                    except Exception as e:
+                        logger.error(f"Unexpected error processing Telegram updates: {e}")
+
+                new_row = pd.DataFrame({
+                    'Open': [latest_data['Open']],
+                    'Close': [latest_data['Close']],
+                    'High': [latest_data['High']],
+                    'Low': [latest_data['Low']],
+                    'Volume': [latest_data['Volume']],
+                    'diff': [latest_data['diff']]
+                }, index=[pd.Timestamp.now(tz='UTC')])
+                df = pd.concat([df, new_row]).tail(100)
+                df = add_technical_indicators(df)
+
+                prev_close = df['Close'].iloc[-1] if len(df) >= 2 else df['Close'].iloc[-1]
+                percent_change = ((current_price - prev_close) / prev_close * 100) if prev_close != 0 else 0.0
+                recommended_action, stop_loss, take_profit = ai_decision(df, position=position, buy_price=buy_price)
+
+                action = "hold"
+                profit = 0
+                msg = f"HOLD {SYMBOL} at {current_price:.2f}"
+                with bot_lock:
+                    if bot_active and recommended_action == "buy" and position is None:
+                        position = "long"
+                        buy_price = current_price
+                        action = "buy"
+                        msg = f"BUY {SYMBOL} at {current_price:.2f}"
+                    elif bot_active and recommended_action == "sell" and position == "long":
+                        profit = current_price - buy_price
+                        total_profit += profit
+                        position = None
+                        action = "sell"
+                        msg = f"SELL {SYMBOL} at {current_price:.2f}, Profit: {profit:.2f}"
+                        if stop_loss and current_price <= stop_loss:
+                            msg += " (Stop-Loss)"
+                        elif take_profit and current_price >= take_profit:
+                            msg += " (Take-Profit)"
+
+                signal = create_signal(action, current_price, latest_data, df, profit, total_profit, msg)
+                store_signal(signal)
+                latest_signal = signal
+                logger.debug(f"Updated latest_signal: {signal}")
+                if bot_active and action != "hold":
+                    threading.Thread(target=send_telegram_message, args=(signal, BOT_TOKEN, CHAT_ID), daemon=True).start()
+                    logger.info(f"Generated signal: {signal['action']} at {signal['price']}")
+
+                if (datetime.now() - last_stats_time).total_seconds() >= stats_interval:
+                    logger.info("Periodic trade statistics would be displayed here. Run display_trade_statistics in a separate cell.")
+                    last_stats_time = datetime.now()
+
+                seconds_to_next, next_boundary = align_to_next_boundary(interval_seconds)
+                if seconds_to_next < 1:
+                    seconds_to_next += interval_seconds
+                    next_boundary += timedelta(seconds=interval_seconds)
+                logger.debug(f"Sleeping for {seconds_to_next:.2f} seconds until next boundary at {next_boundary.strftime('%Y-%m-%d %H:%M:%S')}")
+                time.sleep(seconds_to_next)
             except Exception as e:
-                logger.error(f"Unexpected error processing Telegram updates: {e}")
+                logger.error(f"Error in trading loop: {e}")
+                seconds_to_next, _ = align_to_next_boundary(interval_seconds)
+                time.sleep(seconds_to_next if seconds_to_next > 1 else interval_seconds)
 
-            new_row = pd.DataFrame({
-                'Open': [latest_data['Open']],
-                'Close': [latest_data['Close']],
-                'High': [latest_data['High']],
-                'Low': [latest_data['Low']],
-                'Volume': [latest_data['Volume']],
-                'diff': [latest_data['diff']]
-            }, index=[pd.Timestamp.now(tz='UTC')])
-            df = pd.concat([df, new_row]).tail(100)
-            df = add_technical_indicators(df)
+        # Helper functions
+        def create_signal(action, current_price, latest_data, df, profit, total_profit, msg):
+            latest = df.iloc[-1]
+            return {
+                'time': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                'action': action,
+                'symbol': SYMBOL,
+                'price': current_price,
+                'open_price': latest_data['Open'],
+                'close_price': latest_data['Close'],
+                'volume': latest_data['Volume'],
+                'percent_change': ((current_price - df['Close'].iloc[-2]) / df['Close'].iloc[-2] * 100) if len(df) >= 2 else 0.0,
+                'stop_loss': None,
+                'take_profit': None,
+                'profit': profit,
+                'total_profit': total_profit,
+                'ema1': latest['ema1'] if not pd.isna(latest['ema1']) else 0.0,
+                'ema2': latest['ema2'] if not pd.isna(latest['ema2']) else 0.0,
+                'rsi': latest['rsi'] if not pd.isna(latest['rsi']) else 0.0,
+                'k': latest['k'] if not pd.isna(latest['k']) else 0.0,
+                'd': latest['d'] if not pd.isna(latest['d']) else 0.0,
+                'j': latest['j'] if not pd.isna(latest['j']) else 0.0,
+                'diff': latest['diff'] if not pd.isna(latest['diff']) else 0.0,
+                'message': msg,
+                'timeframe': TIMEFRAME
+            }
 
-            prev_close = df['Close'].iloc[-1] if len(df) >= 2 else df['Close'].iloc[-1]
-            percent_change = ((current_price - prev_close) / prev_close * 100) if prev_close != 0 else 0.0
-            recommended_action, stop_loss, take_profit = ai_decision(df, position=position, buy_price=buy_price)
+        def store_signal(signal):
+            try:
+                if conn is None:
+                    logger.error("Cannot store signal: Database connection is None")
+                    return
+                c = conn.cursor()
+                c.execute('''
+                    INSERT INTO trades (
+                        time, action, symbol, price, open_price, close_price, volume,
+                        percent_change, stop_loss, take_profit, profit, total_profit,
+                        ema1, ema2, rsi, k, d, j, diff, message, timeframe
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    signal['time'], signal['action'], signal['symbol'], signal['price'],
+                    signal['open_price'], signal['close_price'], signal['volume'],
+                    signal['percent_change'], signal['stop_loss'], signal['take_profit'],
+                    signal['profit'], signal['total_profit'],
+                    signal['ema1'], signal['ema2'], signal['rsi'],
+                    signal['k'], signal['d'], signal['j'], signal['diff'],
+                    signal['message'], signal['timeframe']
+                ))
+                conn.commit()
+                logger.debug("Signal stored successfully")
+                upload_to_github('r_bot.db', 'r_bot.db')
+            except Exception as e:
+                logger.error(f"Error storing signal: {e}")
 
-            action = "hold"
-            profit = 0
-            msg = f"HOLD {SYMBOL} at {current_price:.2f}"
-            with bot_lock:
-                if bot_active and recommended_action == "buy" and position is None:
-                    position = "long"
-                    buy_price = current_price
-                    action = "buy"
-                    msg = f"BUY {SYMBOL} at {current_price:.2f}"
-                elif bot_active and recommended_action == "sell" and position == "long":
-                    profit = current_price - buy_price
-                    total_profit += profit
-                    position = None
-                    action = "sell"
-                    msg = f"SELL {SYMBOL} at {current_price:.2f}, Profit: {profit:.2f}"
-                    if stop_loss and current_price <= stop_loss:
-                        msg += " (Stop-Loss)"
-                    elif take_profit and current_price >= take_profit:
-                        msg += " (Take-Profit)"
+        def get_performance():
+            try:
+                if conn is None:
+                    logger.error("Cannot fetch performance: Database connection is None")
+                    return "Database not initialized."
+                c = conn.cursor()
+                c.execute("SELECT COUNT(*) FROM trades")
+                trade_count = c.fetchone()[0]
+                if trade_count == 0:
+                    return "No trades available for performance analysis."
+                c.execute("SELECT DISTINCT timeframe FROM trades")
+                timeframes = [row[0] for row in c.fetchall()]
+                message = "Performance Statistics by Timeframe:\n"
+                for tf in timeframes:
+                    c.execute("SELECT MIN(time), MAX(time), SUM(profit), COUNT(*) FROM trades WHERE action='sell' AND profit IS NOT NULL AND timeframe=?", (tf,))
+                    result = c.fetchone()
+                    min_time, max_time = result, total_profit_db, win_trades = result if result else (None, None, None, 0)
+                    c.execute("SELECT COUNT(*) FROM trades WHERE action='sell' AND profit < 0 AND timeframe=?", (tf,))
+                    loss_trades = c.fetchone()[0]
+                    duration = (datetime.strptime(max_time, "%Y-%m-%d %H:%M:%S") - datetime.strptime(min_time, "%Y-%m-%d %H:%M:%S")).total_seconds() / 3600 if min_time and max_time else "N/A"
+                    total_profit_db = total_profit_db if total_profit_db is not None else 0
+                    message += f"""
+                    Timeframe: {tf}
+                    Duration (hours): {duration if duration != "N/A" else duration}
+                    Win Trades: {win_trades}
+                    Loss Trades: {loss_trades}
+                    Total Profit: {total_profit_db:.2f}
+                """
+                return message
+            except Exception as e:
+                    logger.error(f"Error fetching performance: {e}")
+                    return f"Error fetching performance data: {str(e)}"
 
-            signal = create_signal(action, current_price, latest_data, df, profit, total_profit, msg)
-            store_signal(signal)
-            latest_signal = signal
-            logger.debug(f"Updated latest_signal: {signal}")
-            if bot_active and action != "hold":
-                threading.Thread(target=send_telegram_message, args=(signal, BOT_TOKEN, CHAT_ID), daemon=True).start()
-                logger.info(f"Generated signal: {signal['action']} at {signal['price']}")
+            try:
+                except:
+                    if conn is None:
+                        logger.error("Cannot fetch trade counts: Database connection is None")
+                        return "Database not initialized."
+                    c = conn.cursor()
+                    c.execute("SELECT DISTINCT timeframe FROM trades")
+                    timeframes = [row[0] for row in c.fetchall()]
+                    message = "Trade Counts by Timeframe:\n"
+                    for tf in timeframes:
+                        c.execute("SELECT COUNT(*), SUM(profit) FROM trades WHERE timeframe=?", (tf,))
+                        total_trades, total_profit_db = c.fetchone()
+                        c.execute("SELECT COUNT(*) FROM trades WHERE action='buy' AND timeframe=?", (tf,))
+                        buy_trades = c.fetchone()[0]
+                        c.execute("SELECT COUNT(*) FROM trades WHERE action='sell' AND timeframe=?", (tf,))
+                        sell_trades = c.fetchone()[0]
+                        c.execute("SELECT COUNT(*) FROM trades WHERE action='sell' AND profit > 0 AND timeframe=?", (tf,))
+                        win_trades = c.fetchone()[0]
+                        c.execute("SELECT COUNT(*) FROM trades WHERE action='sell' AND profit < 0 AND timeframe=?", (tf,))
+                        loss_trades = c.fetchone()[0]
+                        total_profit_db = total_profit_db if total_profit_db is not None else 0
+                        message += f"""
+                        Timeframe: {tf}
+                        Total Trades: {total_trades}
+                        Buy Trades: {buy_trades}
+                        Sell Trades: {sell_trades}
+                        Win Trades: {win_trades}
+                        Loss Trades: {loss_trades}
+                        Total Profit: {total_profit_db:.2f}
+                    """
+                    return message
+                except Exception as e:
+                    logger.error(f"Error fetching trade counts: {e}")
+                    return f"Error fetching trade counts: {str(e)}"
 
-            if (datetime.now() - last_stats_time).total_seconds() >= stats_interval:
-                logger.info("Periodic trade statistics would be displayed here. Run display_trade_statistics in a separate cell.")
-                last_stats_time = datetime.now()
+                # Flask routes
+                @app.route('/')
+                def index():
+                    global latest_signal, stop_time
+                    status = "active" if bot_active else "stopped"
+                    try:
+                        if conn is None:
+                            logger.error("Cannot render index.html: Database connection is None")
+                            return jsonify({"error": "Database not initialized. Please check server logs."}), 500
+                        # Check if latest_signal is stale (older than 65 seconds)
+                        signal_time = datetime.strptime(latest_signal['time'], "%Y-%m-%d %H:%M:%S")
+                        if (datetime.now() - signal_time).total_seconds() > 65:
+                            logger.debug("latest_signal is stale, fetching from database")
+                            db_signal = get_latest_signal_from_db()
+                            if db_signal:
+                                latest_signal.update(db_signal)
+                            logger.debug(f"Rendering index.html with latest_signal: {latest_signal}")
+                            c = conn.cursor()
+                            c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 16")
+                            trades = [dict(zip([col[0] for col in c.description], row)) for row in c.fetchall()]
+                            stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S")
+                            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            logger.info(f"Rendering index.html: status={status}, timeframe={TIMEFRAME}, trades={len(trades)}, signal={latest_signal}")
+                            return render_template('index.html', signal=latest_signal, status=status, timeframe=TIMEFRAME,
+                                                 trades=trades, stop_time=stop_time_str, current_time=current_time)
+                        except Exception as e:
+                            logger.error(f"Error rendering index.html: {e}")
+                            return jsonify({"error": "Failed to render template"}), 500
 
-            seconds_to_next, next_boundary = align_to_next_boundary(interval_seconds)
-            if seconds_to_next < 1:
-                seconds_to_next += interval_seconds
-                next_boundary += timedelta(seconds=interval_seconds)
-            logger.debug(f"Sleeping for {seconds_to_next:.2f} seconds until next boundary at {next_boundary.strftime('%Y-%m-%d %H:%M:%S')}")
-            time.sleep(seconds_to_next)
-        except Exception as e:
-            logger.error(f"Error in trading loop: {e}")
-            seconds_to_next, _ = align_to_next_boundary(interval_seconds)
-            time.sleep(seconds_to_next if seconds_to_next > 1 else interval_seconds)
+                    @app.route('/status')
+                    def status():
+                        status = "active" if bot_active else "stopped"
+                        return jsonify({"status": status, "timeframe": TIMEFRAME, "stop_time": stop_time.strftime("%Y-%m-%d %H:%M:%S")})
 
-# Helper functions
-def create_signal(action, current_price, latest_data, df, profit, total_profit, msg):
-    latest = df.iloc[-1]
-    return {
-        'time': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        'action': action,
-        'symbol': SYMBOL,
-        'price': current_price,
-        'open_price': latest_data['Open'],
-        'close_price': latest_data['Close'],
-        'volume': latest_data['Volume'],
-        'percent_change': ((current_price - df['Close'].iloc[-2]) / df['Close'].iloc[-2] * 100) if len(df) >= 2 else 0.0,
-        'stop_loss': None,
-        'take_profit': None,
-        'profit': profit,
-        'total_profit': total_profit,
-        'ema1': latest['ema1'] if not pd.isna(latest['ema1']) else 0.0,
-        'ema2': latest['ema2'] if not pd.isna(latest['ema2']) else 0.0,
-        'rsi': latest['rsi'] if not pd.isna(latest['rsi']) else 0.0,
-        'k': latest['k'] if not pd.isna(latest['k']) else 0.0,
-        'd': latest['d'] if not pd.isna(latest['d']) else 0.0,
-        'j': latest['j'] if not pd.isna(latest['j']) else 0.0,
-        'diff': latest['diff'] if not pd.isna(latest['diff']) else 0.0,
-        'message': msg,
-        'timeframe': TIMEFRAME
-    }
+                    @app.route('/performance')
+                    def performance():
+                        return jsonify({"performance": get_performance()})
 
-def store_signal(signal):
-    try:
-        if conn is None:
-            logger.error("Cannot store signal: Database connection is None")
-            return
-        c = conn.cursor()
-        c.execute('''
-            INSERT INTO trades (
-                time, action, symbol, price, open_price, close_price, volume,
-                percent_change, stop_loss, take_profit, profit, total_profit,
-                ema1, ema2, rsi, k, d, j, diff, message, timeframe
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            signal['time'], signal['action'], signal['symbol'], signal['price'],
-            signal['open_price'], signal['close_price'], signal['volume'],
-            signal['percent_change'], signal['stop_loss'], signal['take_profit'],
-            signal['profit'], signal['total_profit'],
-            signal['ema1'], signal['ema2'], signal['rsi'],
-            signal['k'], signal['d'], signal['j'], signal['diff'],
-            signal['message'], signal['timeframe']
-        ))
-        conn.commit()
-        logger.debug("Signal stored successfully")
-        upload_to_github('r_bot.db', 'r_bot.db')   #  database
-    except Exception as e:
-        logger.error(f"Error storing signal: {e}")
+                    @app.route('/trades')
+                    def trades():
+                        try:
+                            if conn is None:
+                                logger.error("Cannot fetch trades: Database connection is None")
+                                return jsonify({"error": "Database not initialized."}), 500
+                            c = conn.cursor()
+                            c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 16")
+                            trades = [dict(zip([col[0] for col in c.description], row)) for row in c.fetchall()]
+                            return jsonify(trades)
+                        except Exception as e:
+                            logger.error(f"Error fetching trades: {e}")
+                            return jsonify({"error": "Failed to fetch trades"}), 500
 
-def get_performance():
-    try:
-        if conn is None:
-            logger.error("Cannot fetch performance: Database connection is None")
-            return "Database not initialized."
-        c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM trades")
-        trade_count = c.fetchone()[0]
-        if trade_count == 0:
-            return "No trades available for performance analysis."
-        c.execute("SELECT DISTINCT timeframe FROM trades")
-        timeframes = [row[0] for row in c.fetchall()]
-        message = "Performance Statistics by Timeframe:\n"
-        for tf in timeframes:
-            c.execute("SELECT MIN(time), MAX(time), SUM(profit), COUNT(*) FROM trades WHERE action='sell' AND profit IS NOT NULL AND timeframe=?", (tf,))
-            result = c.fetchone()
-            min_time, max_time, total_profit_db, win_trades = result if result else (None, None, None, 0)
-            c.execute("SELECT COUNT(*) FROM trades WHERE action='sell' AND profit < 0 AND timeframe=?", (tf,))
-            loss_trades = c.fetchone()[0]
-            duration = (datetime.strptime(max_time, "%Y-%m-%d %H:%M:%S") - datetime.strptime(min_time, "%Y-%m-%d %H:%M:%S")).total_seconds() / 3600 if min_time and max_time else "N/A"
-            total_profit_db = total_profit_db if total_profit_db is not None else 0
-            message += f"""
-Timeframe: {tf}
-Duration (hours): {duration if duration != "N/A" else duration}
-Win Trades: {win_trades}
-Loss Trades: {loss_trades}
-Total Profit: {total_profit_db:.2f}
-"""
-        return message
-    except Exception as e:
-        logger.error(f"Error fetching performance: {e}")
-        return f"Error fetching performance data: {str(e)}"
+                    # Cleanup
+                    def cleanup():
+                        global conn
+                        if conn:
+                            conn.close()
+                            logger.info("Database connection closed")
 
-def get_trade_counts():
-    try:
-        if conn is None:
-            logger.error("Cannot fetch trade counts: Database connection is None")
-            return "Database not initialized."
-        c = conn.cursor()
-        c.execute("SELECT DISTINCT timeframe FROM trades")
-        timeframes = [row[0] for row in c.fetchall()]
-        message = "Trade Counts by Timeframe:\n"
-        for tf in timeframes:
-            c.execute("SELECT COUNT(*), SUM(profit) FROM trades WHERE timeframe=?", (tf,))
-            total_trades, total_profit_db = c.fetchone()
-            c.execute("SELECT COUNT(*) FROM trades WHERE action='buy' AND timeframe=?", (tf,))
-            buy_trades = c.fetchone()[0]
-            c.execute("SELECT COUNT(*) FROM trades WHERE action='sell' AND timeframe=?", (tf,))
-            sell_trades = c.fetchone()[0]
-            c.execute("SELECT COUNT(*) FROM trades WHERE action='sell' AND profit > 0 AND timeframe=?", (tf,))
-            win_trades = c.fetchone()[0]
-            c.execute("SELECT COUNT(*) FROM trades WHERE action='sell' AND profit < 0 AND timeframe=?", (tf,))
-            loss_trades = c.fetchone()[0]
-            total_profit_db = total_profit_db if total_profit_db is not None else 0
-            message += f"""
-Timeframe: {tf}
-Total Trades: {total_trades}
-Buy Trades: {buy_trades}
-Sell Trades: {sell_trades}
-Win Trades: {win_trades}
-Loss Trades: {loss_trades}
-Total Profit: {total_profit_db:.2f}
-"""
-        return message
-    except Exception as e:
-        logger.error(f"Error fetching trade counts: {e}")
-        return f"Error fetching trade counts: {str(e)}"
+                    atexit.register(cleanup)
 
-# Flask routes
-@app.route('/')
-def index():
-    global latest_signal, stop_time
-    status = "active" if bot_active else "stopped"
-    try:
-        if conn is None:
-            logger.error("Cannot render index.html: Database connection is None")
-            return jsonify({"error": "Database not initialized. Please check server logs."}), 500
-        # Check if latest_signal is stale (older than 65 seconds)
-        signal_time = datetime.strptime(latest_signal['time'], "%Y-%m-%d %H:%M:%S")
-        if (datetime.now() - signal_time).total_seconds() > 65:
-            logger.debug("latest_signal is stale, fetching from database")
-            db_signal = get_latest_signal_from_db()
-            if db_signal:
-                latest_signal.update(db_signal)
-        logger.debug(f"Rendering index.html with latest_signal: {latest_signal}")
-        c = conn.cursor()
-        c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 16")
-        trades = [dict(zip([col[0] for col in c.description], row)) for row in c.fetchall()]
-        stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S")
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        logger.info(f"Rendering index.html: status={status}, timeframe={TIMEFRAME}, trades={len(trades)}, signal={latest_signal}")
-        return render_template('index.html', signal=latest_signal, status=status, timeframe=TIMEFRAME,
-                             trades=trades, stop_time=stop_time_str, current_time=current_time)
-    except Exception as e:
-        logger.error(f"Error rendering index.html: {e}")
-        return jsonify({"error": "Failed to render template"}), 500
+                    # Start trading bot
+                    if bot_thread is None or not bot_thread.is_alive():
+                        bot_thread = threading.Thread(target=trading_bot, daemon=True)
+                        bot_thread.start()
+                        logger.info("Trading bot started automatically")
 
-@app.route('/status')
-def status():
-    status = "active" if bot_active else "stopped"
-    return jsonify({"status": status, "timeframe": TIMEFRAME, "stop_time": stop_time.strftime("%Y-%m-%d %H:%M:%S")})
-
-@app.route('/performance')
-def performance():
-    return jsonify({"performance": get_performance()})
-
-@app.route('/trades')
-def trades():
-    try:
-        if conn is None:
-            logger.error("Cannot fetch trades: Database connection is None")
-            return jsonify({"error": "Database not initialized."}), 500
-        c = conn.cursor()
-        c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 16")
-        trades = [dict(zip([col[0] for col in c.description], row)) for row in c.fetchall()]
-        return jsonify(trades)
-    except Exception as e:
-        logger.error(f"Error fetching trades: {e}")
-        return jsonify({"error": "Failed to fetch trades"}), 500
-
-# Cleanup
-def cleanup():
-    global conn
-    if conn:
-        conn.close()
-        logger.info("Database connection closed")
-
-atexit.register(cleanup)
-
-# Start trading bot
-if bot_thread is None or not bot_thread.is_alive():
-    bot_thread = threading.Thread(target=trading_bot, daemon=True)
-    bot_thread.start()
-    logger.info("Trading bot started automatically")
-
-if __name__ == "__main__":
-    port = int(os.getenv("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+                    if __name__ == "__main__":
+                        port = int(os.getenv("PORT", 5000))
+                        app.run(host="0.0.0.0", port=port, debug=False)
