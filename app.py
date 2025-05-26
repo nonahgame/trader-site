@@ -52,7 +52,7 @@ GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")  # database
 
 # GitHub API setup
-GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
+GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_TOKEN}/contents/{GITHUB_PATH}"  # GITHUB_REPO
 HEADERS = {
     "Authorization": f"token {GITHUB_TOKEN}",
     "Accept": "application/vnd.github.v3+json"
