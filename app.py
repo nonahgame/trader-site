@@ -592,7 +592,7 @@ def trading_bot():
                                 stop_time = start_time + pd.Timedelta(minutes=STOP_AFTER_SECONDS)
                                 bot.send_message(chat_id=command_chat_id, text=f"Bot restarted with stop time: {stop_time.strftime('%Y-%m-%d %H:%M:%S')}")
                         elif text == '/status':
-                            status = "active' if bot_active else f"paused for {int(pause_duration - (datetime.now() - pause_start).total_seconds())} seconds" if pause_start else "stopped"
+                            status = "active" if bot_active else f"paused for {int(pause_duration - (datetime.now() - pause_start).total_seconds())} seconds" if pause_start else "stopped"
                             bot.send_message(chat_id=command_chat_id, text=status)
                         elif text == '/performance':
                             bot.send_message(chat_id=command_chat_id, text=get_performance())
