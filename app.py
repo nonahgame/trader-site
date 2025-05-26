@@ -48,14 +48,14 @@ TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 2.0))
 STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 61200))
 INTER_SECONDS = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))  # Default to 60 if invalid
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
+GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")  # database
 
 # GitHub API setup
-GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_TOKEN}/contents/{GITHUB_PATH}"
+GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
 HEADERS = {
     "Authorization": f"token {GITHUB_TOKEN}",
-    "Latest": "application/vnd.github.v3+json"
+    "Accept": "application/vnd.github.v3+json"
 }
 
 def upload_to_github(file_path, file_name):
@@ -63,32 +63,32 @@ def upload_to_github(file_path, file_name):
         if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_TOKEN":  # Your-GITHUB_TOKEN
             logger.error("GITHUB_TOKEN is not set or invalid.")
             return
-        if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_TOKEN":  # your-username/your-repo
-            logger.error("GITHUB_TOKEN is not set or invalid.")
+        if not GITHUB_REPO or GITHUB_REPO == "GITHUB_REPO":  # your-username/your-repo
+            logger.error("GITHUB_REPO is not set or invalid.")
             return
         if not GITHUB_PATH:
             logger.error("GITHUB_PATH is not set.")
             return
 
-        logger.debug(f"Uploading {file_name} to GitHub: {GITHUB_TOKEN}/{GITHUB_PATH}")
+        logger.debug(f"Uploading {file_name} to GitHub: {GITHUB_REPO}/{GITHUB_PATH}")
 
         # Read the file and encode it to base64
         with open(file_path, "rb") as f:
             content = base64.b64encode(f.read()).decode("utf-8")
 
-        # Check if the file already exists
+        # Check if the file already exists to get its SHA
         response = requests.get(GITHUB_API_URL, headers=HEADERS)
         sha = None
         if response.status_code == 200:
-            logger.debug(f"Existing file SHA: {sha}")
+            sha = response.json().get("sha")
             logger.debug(f"Existing file SHA: {sha}")
         elif response.status_code != 404:
-            logger.error(f"Failed to check existing file on GitHub: {response.status_code}")
+            logger.error(f"Failed to check existing file on GitHub: {response.status_code} - {response.text}")
             return
 
         # Prepare the payload
         payload = {
-            "message": f"Update {file_name} at {datetime.now().strftime('%Y:%m-%d %H:%M:%S')}",
+            "message": f"Update {file_name} at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             "content": content
         }
         if sha:
@@ -101,21 +101,21 @@ def upload_to_github(file_path, file_name):
         else:
             logger.error(f"Failed to upload {file_name} to GitHub: {response.status_code} - {response.text}")
     except Exception as e:
-        logger.error(f"Error uploading {file_name} to GitHub: {e}")
+        logger.error(f"Error uploading {file_name} to GitHub: {e}", exc_info=True)
 
 def download_from_github(file_name, destination_path):
     try:
-        if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_TOKEN":  # md
+        if not GITHUB_TOKEN or GITHUB_TOKEN == "YOUR_GITHUB_TOKEN_HERE":
             logger.error("GITHUB_TOKEN is not set or invalid.")
             return False
-        if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_TOKEN":   #  md
-            logger.error("GITHUB_TOKEN is not set or invalid.")
+        if not GITHUB_REPO or GITHUB_REPO == "your-username/your-repo":
+            logger.error("GITHUB_REPO is not set or invalid.")
             return False
         if not GITHUB_PATH:
             logger.error("GITHUB_PATH is not set.")
             return False
 
-        logger.debug(f"Downloading {file_name} from GitHub: {GITHUB_TOKEN}/{GITHUB_PATH}")
+        logger.debug(f"Downloading {file_name} from GitHub: {GITHUB_REPO}/{GITHUB_PATH}")
 
         # Fetch the file
         response = requests.get(GITHUB_API_URL, headers=HEADERS)
@@ -123,7 +123,7 @@ def download_from_github(file_name, destination_path):
             logger.info(f"No {file_name} found in GitHub repository. Starting with a new database.")
             return False
         elif response.status_code != 200:
-            logger.error(f"Failed to fetch {file_name} from GitHub: {response.status_code}")
+            logger.error(f"Failed to fetch {file_name} from GitHub: {response.status_code} - {response.text}")
             return False
 
         # Decode and save the file
@@ -133,7 +133,7 @@ def download_from_github(file_name, destination_path):
         logger.info(f"Downloaded {file_name} from GitHub to {destination_path}")
         return True
     except Exception as e:
-        logger.error(f"Error downloading {file_name} from GitHub: {e}")
+        logger.error(f"Error downloading {file_name} from GitHub: {e}", exc_info=True)
         return False
 
 # Global state
@@ -151,7 +151,7 @@ latest_signal = {
     'time': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     'action': 'hold',
     'symbol': SYMBOL,
-    'signal': 0.0,
+    'price': 0.0,
     'open_price': 0.0,
     'close_price': 0.0,
     'volume': 0.0,
@@ -165,7 +165,7 @@ latest_signal = {
     'rsi': 0.0,
     'diff': 0.0,
     'k': 0.0,
-    'from': 0.0,
+    'd': 0.0,
     'j': 0.0,
     'message': 'Initializing...',
     'timeframe': TIMEFRAME
@@ -181,11 +181,11 @@ def setup_database():
     try:
         if download_from_github('r_bot.db', db_path):    # database
             logger.info(f"Restored database from GitHub to {db_path}")
-            else:
+        else:
             logger.info(f"No existing database found. Creating new database at {db_path}")
         conn = sqlite3.connect(db_path, check_same_thread=False)
         c = conn.cursor()
-        c.execute("SELECT name FROM sqlite3_master WHERE type='table' AND name='trades';")
+        c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trades';")
         if not c.fetchone():
             c.execute('''
                 CREATE TABLE trades (
@@ -214,8 +214,8 @@ def setup_database():
                 )
             ''')
         c.execute("PRAGMA table_info(trades);")
-        columns = [col for col in c.fetchall()]
-        for col in col in ['message', 'timeframe', 'diff']:
+        columns = [col[1] for col in c.fetchall()]
+        for col in ['message', 'timeframe', 'diff']:
             if col not in columns:
                 c.execute(f'ALTER TABLE trades ADD COLUMN {col} {"TEXT" if col != "diff" else "REAL"};')
         conn.commit()
@@ -234,9 +234,8 @@ if conn is None:
 def get_latest_signal_from_db():
     try:
         if conn is None:
-            logger.error("Cannot fetch latest signal from database: Database connection is None")
+            logger.error("Cannot fetch latest signal: Database connection is None")
             return None
-        try:
         c = conn.cursor()
         c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 1")
         row = c.fetchone()
@@ -246,7 +245,6 @@ def get_latest_signal_from_db():
             logger.debug(f"Fetched latest signal from DB: {signal}")
             return signal
         return None
-
     except Exception as e:
         logger.error(f"Error fetching latest signal from DB: {e}")
         return None
@@ -260,11 +258,10 @@ def delete_webhook(retries=3, delay=5):
                 bot.delete_webhook()
                 logger.info("Telegram webhook deleted successfully")
                 return True
-            except telegram.error as e:
-                logger.error(f"Failed to delete webhook (attempt {attempt + 1}/{retries} to {e}")
-                return False
-            if attempt < retries - 1:
-                time.sleep(delay)
+            except telegram.error.TelegramError as e:
+                logger.error(f"Failed to delete webhook (attempt {attempt + 1}/{retries}): {e}")
+                if attempt < retries - 1:
+                    time.sleep(delay)
         logger.error(f"Failed to delete webhook after {retries} attempts")
         return False
     except Exception as e:
@@ -690,14 +687,14 @@ def create_signal(action, current_price, latest_data, df, profit, total_profit, 
         'take_profit': None,
         'profit': profit,
         'total_profit': total_profit,
-        'ema1': latest['ema1'], if not pd.isna(latest['ema1']) else 0.0,
-        'ema2': [latest['ema2'], if not pd.isna(latest['ema2']) else 0.0,
-        'rsi': [latest['rsi'], if not pd.isna(latest['rsi']) else 0.0,
-        'k': [latest['k'] if not pd.isna(latest['k']) else 0.0,
-        'd': [latest['d'] if not pd.isna(latest['d']) else 0.0,
-        'j': [latest['j'] if not pd.isna(latest['j']) else 0.0,
-        'diff': [latest['diff'] if not pd.isna(latest['diff']) else 0.0,
-        'message': [msg],
+        'ema1': latest['ema1'] if not pd.isna(latest['ema1']) else 0.0,
+        'ema2': latest['ema2'] if not pd.isna(latest['ema2']) else 0.0,
+        'rsi': latest['rsi'] if not pd.isna(latest['rsi']) else 0.0,
+        'k': latest['k'] if not pd.isna(latest['k']) else 0.0,
+        'd': latest['d'] if not pd.isna(latest['d']) else 0.0,
+        'j': latest['j'] if not pd.isna(latest['j']) else 0.0,
+        'diff': latest['diff'] if not pd.isna(latest['diff']) else 0.0,
+        'message': msg,
         'timeframe': TIMEFRAME
     }
 
@@ -724,7 +721,7 @@ def store_signal(signal):
         ))
         conn.commit()
         logger.debug("Signal stored successfully")
-        upload_to_github('r_bot.db', 'r_bot.db')   # database
+        upload_to_github('renda_bot.db', 'renda_bot.db')
     except Exception as e:
         logger.error(f"Error storing signal: {e}")
 
@@ -739,29 +736,27 @@ def get_performance():
         if trade_count == 0:
             return "No trades available for performance analysis."
         c.execute("SELECT DISTINCT timeframe FROM trades")
-        timeframes = [row['0] for row in c.fetchall()]
-        message = "Performance Statistics by Timeframe:":
+        timeframes = [row[0] for row in c.fetchall()]
+        message = "Performance Statistics by Timeframe:\n"
         for tf in timeframes:
             c.execute("SELECT MIN(time), MAX(time), SUM(profit), COUNT(*) FROM trades WHERE action='sell' AND profit IS NOT NULL AND timeframe=?", (tf,))
             result = c.fetchone()
             min_time, max_time, total_profit_db, win_trades = result if result else (None, None, None, 0)
-            c.execute("SELECT COUNT(*) FROM trades WHERE action='sell' AND profit AND timeframes=?", (tf,))
+            c.execute("SELECT COUNT(*) FROM trades WHERE action='sell' AND profit < 0 AND timeframe=?", (tf,))
             loss_trades = c.fetchone()[0]
             duration = (datetime.strptime(max_time, "%Y-%m-%d %H:%M:%S") - datetime.strptime(min_time, "%Y-%m-%d %H:%M:%S")).total_seconds() / 3600 if min_time and max_time else "N/A"
             total_profit_db = total_profit_db if total_profit_db is not None else 0
-            message += (f"""
-            """)
+            message += f"""
 Timeframe: {tf}
-            Duration (hours): {duration if duration != "N/A" else duration}
-            Win Trades: {win_trades}
-            Loss Trades: {loss_trades}
-            Total Profit: {total_profit_db:.2f}
+Duration (hours): {duration if duration != "N/A" else duration}
+Win Trades: {win_trades}
+Loss Trades: {loss_trades}
+Total Profit: {total_profit_db:.2f}
 """
-            """
         return message
     except Exception as e:
         logger.error(f"Error fetching performance: {e}")
-        return str(f"Error fetching performance data: {str(e)}")
+        return f"Error fetching performance data: {str(e)}"
 
 def get_trade_counts():
     try:
@@ -771,36 +766,32 @@ def get_trade_counts():
         c = conn.cursor()
         c.execute("SELECT DISTINCT timeframe FROM trades")
         timeframes = [row[0] for row in c.fetchall()]
-        message = "Trade Counts by Timeframe:":
+        message = "Trade Counts by Timeframe:\n"
         for tf in timeframes:
             c.execute("SELECT COUNT(*), SUM(profit) FROM trades WHERE timeframe=?", (tf,))
             total_trades, total_profit_db = c.fetchone()
             c.execute("SELECT COUNT(*) FROM trades WHERE action='buy' AND timeframe=?", (tf,))
             buy_trades = c.fetchone()[0]
             c.execute("SELECT COUNT(*) FROM trades WHERE action='sell' AND timeframe=?", (tf,))
-            sell_trades = c.fetchall()[0]
-            c.execute("SELECT COUNT(*) FROM trades WHERE action='sell' AND profit AND timeframe=?", (tf,))
+            sell_trades = c.fetchone()[0]
+            c.execute("SELECT COUNT(*) FROM trades WHERE action='sell' AND profit > 0 AND timeframe=?", (tf,))
             win_trades = c.fetchone()[0]
-            c.execute("SELECT COUNT(*) FROM trades WHERE action='sell' AND profit AND timeframe=?", (tf,))
+            c.execute("SELECT COUNT(*) FROM trades WHERE action='sell' AND profit < 0 AND timeframe=?", (tf,))
             loss_trades = c.fetchone()[0]
             total_profit_db = total_profit_db if total_profit_db is not None else 0
-            message += (f"""
-            """)
-            """")
+            message += f"""
 Timeframe: {tf}
-            Total Trades: {total_trades}
-            Buy Trades: {buy_trades}
-            Sell Trades: {sell_trades}
-            Win Trades: {win_trades}
-            Loss Trades: {loss_trades}
-            Total Profit: {total_profit_db:.2f}
+Total Trades: {total_trades}
+Buy Trades: {buy_trades}
+Sell Trades: {sell_trades}
+Win Trades: {win_trades}
+Loss Trades: {loss_trades}
+Total Profit: {total_profit_db:.2f}
 """
-            """
-            f"""
         return message
     except Exception as e:
         logger.error(f"Error fetching trade counts: {e}")
-        return f"Error fetching trade counts: {str(e)}")
+        return f"Error fetching trade counts: {str(e)}"
 
 # Flask routes
 @app.route('/')
@@ -810,22 +801,22 @@ def index():
     try:
         if conn is None:
             logger.error("Cannot render index.html: Database connection is None")
-            return jsonify({"error': "Database not initialized. Please check server logs."}), 500
-        # Check if latest_signal exists is stale signal
-        signal_time = pd.to_datetime(latest_signal['time'], format="%Y-%m-%d %H:%M:%S")
-        if (datetime.now() - signal_time).seconds() > 65:
-            logger.debug("latest_signal is stale, fetching from history")
-            signal = get_latest_signal_from_db()
+            return jsonify({"error": "Database not initialized. Please check server logs."}), 500
+        # Check if latest_signal is stale (older than 65 seconds)
+        signal_time = datetime.strptime(latest_signal['time'], "%Y-%m-%d %H:%M:%S")
+        if (datetime.now() - signal_time).total_seconds() > 65:
+            logger.debug("latest_signal is stale, fetching from database")
+            db_signal = get_latest_signal_from_db()
             if db_signal:
-                latest_signal.update(signal)
-        logger.debug(f"Rendering index.html with latest_signal {latest_signal}")
+                latest_signal.update(db_signal)
+        logger.debug(f"Rendering index.html with latest_signal: {latest_signal}")
         c = conn.cursor()
-        c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 1")
+        c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 16")
         trades = [dict(zip([col[0] for col in c.description], row)) for row in c.fetchall()]
         stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S")
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        logger.info(f"Rendering index.html: {latest_signal}")
-        return render_template('index.html', latest_signal=latest_signal, status=status, timeframe=TIMEFRAME,
+        logger.info(f"Rendering index.html: status={status}, timeframe={TIMEFRAME}, trades={len(trades)}, signal={latest_signal}")
+        return render_template('index.html', signal=latest_signal, status=status, timeframe=TIMEFRAME,
                              trades=trades, stop_time=stop_time_str, current_time=current_time)
     except Exception as e:
         logger.error(f"Error rendering index.html: {e}")
@@ -834,7 +825,7 @@ def index():
 @app.route('/status')
 def status():
     status = "active" if bot_active else "stopped"
-    return jsonify({"status": status, "timeframe": TIMEFRAME, "stop_time": stop_time.strftime("%Y%m-%d %H:%M:%S")})
+    return jsonify({"status": status, "timeframe": TIMEFRAME, "stop_time": stop_time.strftime("%Y-%m-%d %H:%M:%S")})
 
 @app.route('/performance')
 def performance():
@@ -858,11 +849,8 @@ def trades():
 def cleanup():
     global conn
     if conn:
-        try:
-            conn.close()
-            logger.info("Database connection closed")
-        except Exception as e:
-            logger.error(f"Error closing database connection: {e}")
+        conn.close()
+        logger.info("Database connection closed")
 
 atexit.register(cleanup)
 
@@ -874,4 +862,4 @@ if bot_thread is None or not bot_thread.is_alive():
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=port, debug=False)
