@@ -15,13 +15,14 @@ from flask import Flask, render_template, jsonify
 import atexit
 import base64
 import json
+import sys
 
 # Configure logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.DEBUG,
     handlers=[
-        logging.FileHandler('r_bot.log'),
+        logging.FileHandler('renda_bot.log'),
         logging.StreamHandler()
     ]
 )
@@ -39,20 +40,42 @@ except ImportError:
 app = Flask(__name__)
 
 # Environment variables
-BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 SYMBOL = os.getenv("SYMBOL", "BTC/USD")
-TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
+TIMEFRAME = os.getenv("TIMEFRAME", "1m")
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -0.15))
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 2.0))
 STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 61200))
-INTER_SECONDS = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))  # Default to 60 if invalid
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
-GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
-GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")  # database
+INTER_SECONDS = int(os.getenv("INTER_SECONDS", 60))
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+GITHUB_REPO = os.getenv("GITHUB_REPO")
+GITHUB_PATH = os.getenv("GITHUB_PATH", "data/renda_bot.db")
+
+# Validate required environment variables
+def validate_env_vars():
+    required_vars = {
+        "BOT_TOKEN": BOT_TOKEN,
+        "CHAT_ID": CHAT_ID,
+        "GITHUB_TOKEN": GITHUB_TOKEN,
+        "GITHUB_REPO": GITHUB_REPO
+    }
+    missing_vars = [key for key, value in required_vars.items() if not value or value == ""]
+    if missing_vars:
+        logger.error(f"Missing or invalid environment variables: {', '.join(missing_vars)}")
+        logger.error("Please set these variables in your .env file or environment.")
+        sys.exit(1)
+    if GITHUB_REPO == "your-username/your-repo":
+        logger.error("GITHUB_REPO is set to default value. Please specify a valid repository (e.g., 'johnsmith/renda-bot').")
+        sys.exit(1)
+    logger.debug("All required environment variables are set.")
+
+validate_env_vars()
 
 # GitHub API setup
-GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
+def get_github_api_url():
+    return f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
+
 HEADERS = {
     "Authorization": f"token {GITHUB_TOKEN}",
     "Accept": "application/vnd.github.v3+json"
@@ -60,16 +83,7 @@ HEADERS = {
 
 def upload_to_github(file_path, file_name):
     try:
-        if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_TOKEN":  # Your-GITHUB_TOKEN
-            logger.error("GITHUB_TOKEN is not set or invalid.")
-            return
-        if not GITHUB_REPO or GITHUB_REPO == "GITHUB_REPO":  # your-username/your-repo
-            logger.error("GITHUB_REPO is not set or invalid.")
-            return
-        if not GITHUB_PATH:
-            logger.error("GITHUB_PATH is not set.")
-            return
-
+        api_url = get_github_api_url()
         logger.debug(f"Uploading {file_name} to GitHub: {GITHUB_REPO}/{GITHUB_PATH}")
 
         # Read the file and encode it to base64
@@ -77,7 +91,7 @@ def upload_to_github(file_path, file_name):
             content = base64.b64encode(f.read()).decode("utf-8")
 
         # Check if the file already exists to get its SHA
-        response = requests.get(GITHUB_API_URL, headers=HEADERS)
+        response = requests.get(api_url, headers=HEADERS)
         sha = None
         if response.status_code == 200:
             sha = response.json().get("sha")
@@ -95,7 +109,7 @@ def upload_to_github(file_path, file_name):
             payload["sha"] = sha
 
         # Upload the file
-        response = requests.put(GITHUB_API_URL, headers=HEADERS, json=payload)
+        response = requests.put(api_url, headers=HEADERS, json=payload)
         if response.status_code in [200, 201]:
             logger.info(f"Successfully uploaded {file_name} to GitHub")
         else:
@@ -105,20 +119,11 @@ def upload_to_github(file_path, file_name):
 
 def download_from_github(file_name, destination_path):
     try:
-        if not GITHUB_TOKEN or GITHUB_TOKEN == "YOUR_GITHUB_TOKEN_HERE":
-            logger.error("GITHUB_TOKEN is not set or invalid.")
-            return False
-        if not GITHUB_REPO or GITHUB_REPO == "your-username/your-repo":
-            logger.error("GITHUB_REPO is not set or invalid.")
-            return False
-        if not GITHUB_PATH:
-            logger.error("GITHUB_PATH is not set.")
-            return False
-
+        api_url = get_github_api_url()
         logger.debug(f"Downloading {file_name} from GitHub: {GITHUB_REPO}/{GITHUB_PATH}")
 
         # Fetch the file
-        response = requests.get(GITHUB_API_URL, headers=HEADERS)
+        response = requests.get(api_url, headers=HEADERS)
         if response.status_code == 404:
             logger.info(f"No {file_name} found in GitHub repository. Starting with a new database.")
             return False
@@ -177,9 +182,9 @@ last_valid_price = None
 # SQLite database setup
 def setup_database():
     global conn
-    db_path = 'r_bot.db'   # database
+    db_path = 'renda_bot.db'
     try:
-        if download_from_github('r_bot.db', db_path):    # database
+        if download_from_github('renda_bot.db', db_path):
             logger.info(f"Restored database from GitHub to {db_path}")
         else:
             logger.info(f"No existing database found. Creating new database at {db_path}")
@@ -315,7 +320,7 @@ def add_technical_indicators(df):
         logger.error(f"Error calculating indicators: {e}")
         return df
 
-# AI decision logic (UNCHANGED from previous request)
+# AI decision logic
 def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAKE_PROFIT_PERCENT, position=None, buy_price=None):
     if df.empty or len(df) < 1:
         logger.warning("DataFrame is empty or too small for decision.")
@@ -349,10 +354,10 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
             action = "sell"
 
     if action == "hold" and position is None:
-        if (close_price > open_price and ema1 > ema2 and kdj_j < 117.00) or \
-           (close_price > open_price and kdj_j > kdj_d and kdj_j < 116.00) or \
+        if (close_price > open_price and ema1 > ema2 and kdj_j < 80.00) or \
+           (close_price > open_price and kdj_j > kdj_d and kdj_j < 80.00) or \
            (rsi < 9.00) or \
-           (kdj_j < -22.00):
+           (kdj_j < -17.00):
             logger.info(f"Buy signal detected: close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}, kdj_j={kdj_j:.2f}, rsi={rsi:.2f}")
             action = "buy"
 
@@ -472,7 +477,7 @@ def trading_bot():
                 logger.error(f"Failed to fetch historical data for {SYMBOL}.")
                 return
 
-    interval_seconds = INTER_SECONDS   #  used timing
+    interval_seconds = INTER_SECONDS
     logger.info(f"Using interval of {interval_seconds} seconds for timeframe {TIMEFRAME}")
 
     seconds_to_next, next_boundary = align_to_next_boundary(interval_seconds)
@@ -672,7 +677,7 @@ def trading_bot():
             time.sleep(seconds_to_next if seconds_to_next > 1 else interval_seconds)
 
 # Helper functions
-def create_signal(action, current_price, latest_data, df, profit, total_profit, msg):
+def create_signal(action, current_price, latest_data, df, profit, total_profit):
     latest = df.iloc[-1]
     return {
         'time': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -693,10 +698,11 @@ def create_signal(action, current_price, latest_data, df, profit, total_profit, 
         'k': latest['k'] if not pd.isna(latest['k']) else 0.0,
         'd': latest['d'] if not pd.isna(latest['d']) else 0.0,
         'j': latest['j'] if not pd.isna(latest['j']) else 0.0,
-        'diff': latest['diff'] if not pd.isna(latest['diff']) else 0.0,
-        'message': msg,
+        'diff': latest['diff'] if 'diff' in latest and not pd.isna(latest['diff']) else 0.0,
+        'message': f"{action.upper()} {SYMBOL} at {current_price:.2f}",
         'timeframe': TIMEFRAME
     }
+
 
 def store_signal(signal):
     try:
@@ -815,7 +821,7 @@ def index():
         trades = [dict(zip([col[0] for col in c.description], row)) for row in c.fetchall()]
         stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S")
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        logger.info(f"Rendering index.html: status={status}, timeframe={TIMEFRAME}, trades={len(trades)}, signal={latest_signal}")
+        logger.info(f"Rendering index.html: status={status}, timeframe={TIMEFRAME}, trades={len(trades)}")
         return render_template('index.html', signal=latest_signal, status=status, timeframe=TIMEFRAME,
                              trades=trades, stop_time=stop_time_str, current_time=current_time)
     except Exception as e:
@@ -849,8 +855,11 @@ def trades():
 def cleanup():
     global conn
     if conn:
-        conn.close()
-        logger.info("Database connection closed")
+        try:
+            conn.close()
+            logger.info("Database connection closed")
+        except Exception as e:
+            logger.error(f"Error closing database connection: {e}")
 
 atexit.register(cleanup)
 
