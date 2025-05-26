@@ -105,10 +105,10 @@ def upload_to_github(file_path, file_name):
 
 def download_from_github(file_name, destination_path):
     try:
-        if not GITHUB_TOKEN or GITHUB_TOKEN == "YOUR_GITHUB_TOKEN_HERE":
+        if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_TOKEN":   #  YOUR_GITHUB_TOKEN_HERE
             logger.error("GITHUB_TOKEN is not set or invalid.")
             return False
-        if not GITHUB_REPO or GITHUB_REPO == "your-username/your-repo":
+        if not GITHUB_REPO or GITHUB_REPO == "GITHUB_REPO":   # your-username/your-repo
             logger.error("GITHUB_REPO is not set or invalid.")
             return False
         if not GITHUB_PATH:
