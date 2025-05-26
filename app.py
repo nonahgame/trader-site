@@ -721,7 +721,7 @@ def store_signal(signal):
         ))
         conn.commit()
         logger.debug("Signal stored successfully")
-        upload_to_github('r_bot.db', 'data/r_bot.db')  # upload_to_github('r_bot.db', 'r_bot.db')   #  database
+        upload_to_github('r_bot.db', 'r_bot.db')  # upload_to_github('r_bot.db', 'data/r_bot.db')  # upload_to_github('r_bot.db', 'r_bot.db')   #  database
     except Exception as e:
         logger.error(f"Error storing signal: {e}")
 
