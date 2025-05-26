@@ -601,7 +601,7 @@ def trading_bot():
                         elif text == '/stats':
                             bot.send_message(chat_id=command_chat_id, text="Trade statistics printed to console. Run display_trade_statistics in a separate cell.")
                     last_update_id = update.update_id + 1
-                except telegram.error as e:
+                except telegram.error.TelegramError as e:
                     logger.error(f"Error processing Telegram updates: {e}")
                     except Exception as e:
                         logger.error(f"Unexpected error processing Telegram updates: {e}")
@@ -714,7 +714,7 @@ def trading_bot():
                 ))
                 conn.commit()
                 logger.debug("Signal stored successfully")
-                upload_to_github('r_bot.db', 'r_bot.db')
+                upload_to_github('r_bot.db', 'data/r_bot.db')   #  upload_to_github('r_bot.db', 'r_bot.db')
             except Exception as e:
                 logger.error(f"Error storing signal: {e}")
 
