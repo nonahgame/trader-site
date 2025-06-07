@@ -41,29 +41,40 @@ app = Flask(__name__)
 # Environment variables
 BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID")
-SYMBOL = os.getenv("SYMBOL", "BTC/USD")
+SYMBOL = os.getenv("SYMBOL", "BTC/USDT")  # Updated default to Binance-compatible symbol
 TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
-STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -0.15))
+STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -2.0))
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 2.0))
 STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 61200))
-INTER_SECONDS = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))  # Default to 60 if invalid
+INTER_SECONDS = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
-GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")  # database
+GITHUB_PATH = os.getenv("GITHUB_PATH", "data/r_bot.db")
+BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "BINANCE_API_KEY")
+BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET", "BINANCE_API_SECRET")
+ORDER_SIZE_USDT = float(os.getenv("ORDER_SIZE_USDT", 14.0))  # Amount in USDT per trade
 
 # GitHub API setup
-GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"  # GITHUB_REPO
+GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
 HEADERS = {
     "Authorization": f"token {GITHUB_TOKEN}",
     "Accept": "application/vnd.github.v3+json"
 }
 
+# Binance exchange setup
+exchange = ccxt.binance({
+    'apiKey': BINANCE_API_KEY,
+    'secret': BINANCE_API_SECRET,
+    'enableRateLimit': True,
+    'testnet': True,
+})
+
 def upload_to_github(file_path, file_name):
     try:
-        if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_TOKEN":  # Your-GITHUB_TOKEN
+        if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_TOKEN":
             logger.error("GITHUB_TOKEN is not set or invalid.")
             return
-        if not GITHUB_REPO or GITHUB_REPO == "GITHUB_REPO":  # your-username/your-repo
+        if not GITHUB_REPO or GITHUB_REPO == "GITHUB_REPO":
             logger.error("GITHUB_REPO is not set or invalid.")
             return
         if not GITHUB_PATH:
@@ -72,11 +83,9 @@ def upload_to_github(file_path, file_name):
 
         logger.debug(f"Uploading {file_name} to GitHub: {GITHUB_REPO}/{GITHUB_PATH}")
 
-        # Read the file and encode it to base64
         with open(file_path, "rb") as f:
             content = base64.b64encode(f.read()).decode("utf-8")
 
-        # Check if the file already exists to get its SHA
         response = requests.get(GITHUB_API_URL, headers=HEADERS)
         sha = None
         if response.status_code == 200:
@@ -86,7 +95,6 @@ def upload_to_github(file_path, file_name):
             logger.error(f"Failed to check existing file on GitHub: {response.status_code} - {response.text}")
             return
 
-        # Prepare the payload
         payload = {
             "message": f"Update {file_name} at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             "content": content
@@ -94,7 +102,6 @@ def upload_to_github(file_path, file_name):
         if sha:
             payload["sha"] = sha
 
-        # Upload the file
         response = requests.put(GITHUB_API_URL, headers=HEADERS, json=payload)
         if response.status_code in [200, 201]:
             logger.info(f"Successfully uploaded {file_name} to GitHub")
@@ -105,10 +112,10 @@ def upload_to_github(file_path, file_name):
 
 def download_from_github(file_name, destination_path):
     try:
-        if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_TOKEN":   #  YOUR_GITHUB_TOKEN_HERE
+        if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_TOKEN":
             logger.error("GITHUB_TOKEN is not set or invalid.")
             return False
-        if not GITHUB_REPO or GITHUB_REPO == "GITHUB_REPO":   # your-username/your-repo
+        if not GITHUB_REPO or GITHUB_REPO == "GITHUB_REPO":
             logger.error("GITHUB_REPO is not set or invalid.")
             return False
         if not GITHUB_PATH:
@@ -117,7 +124,6 @@ def download_from_github(file_name, destination_path):
 
         logger.debug(f"Downloading {file_name} from GitHub: {GITHUB_REPO}/{GITHUB_PATH}")
 
-        # Fetch the file
         response = requests.get(GITHUB_API_URL, headers=HEADERS)
         if response.status_code == 404:
             logger.info(f"No {file_name} found in GitHub repository. Starting with a new database.")
@@ -126,7 +132,6 @@ def download_from_github(file_name, destination_path):
             logger.error(f"Failed to fetch {file_name} from GitHub: {response.status_code} - {response.text}")
             return False
 
-        # Decode and save the file
         content = base64.b64decode(response.json()["content"])
         with open(destination_path, "wb") as f:
             f.write(content)
@@ -141,7 +146,6 @@ bot_thread = None
 bot_active = True
 bot_lock = threading.Lock()
 conn = None
-exchange = ccxt.kraken()
 position = None
 buy_price = None
 total_profit = 0
@@ -177,9 +181,9 @@ last_valid_price = None
 # SQLite database setup
 def setup_database():
     global conn
-    db_path = 'r_bot.db'   # database
+    db_path = 'r_bot.db'
     try:
-        if download_from_github('r_bot.db', db_path):    # database
+        if download_from_github('r_bot.db', db_path):
             logger.info(f"Restored database from GitHub to {db_path}")
         else:
             logger.info(f"No existing database found. Creating new database at {db_path}")
@@ -210,12 +214,13 @@ def setup_database():
                     j REAL,
                     diff REAL,
                     message TEXT,
-                    timeframe TEXT
+                    timeframe TEXT,
+                    order_id TEXT
                 )
             ''')
         c.execute("PRAGMA table_info(trades);")
         columns = [col[1] for col in c.fetchall()]
-        for col in ['message', 'timeframe', 'diff']:
+        for col in ['message', 'timeframe', 'diff', 'order_id']:
             if col not in columns:
                 c.execute(f'ALTER TABLE trades ADD COLUMN {col} {"TEXT" if col != "diff" else "REAL"};')
         conn.commit()
@@ -268,7 +273,7 @@ def delete_webhook(retries=3, delay=5):
         logger.error(f"Error initializing bot for webhook deletion: {e}")
         return False
 
-# Fetch price data with improved handling
+# Fetch price data
 def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, retries=3, delay=5):
     global last_valid_price
     for attempt in range(retries):
@@ -315,7 +320,33 @@ def add_technical_indicators(df):
         logger.error(f"Error calculating indicators: {e}")
         return df
 
-# AI decision logic (UNCHANGED from previous request)
+# Get available balance
+def get_available_balance(asset):
+    try:
+        balance = exchange.fetch_balance()
+        available = balance[asset]['free']
+        logger.debug(f"Available {asset} balance: {available}")
+        return available
+    except Exception as e:
+        logger.error(f"Error fetching balance for {asset}: {e}")
+       વ
+
+        return 0.0
+
+# Place market order
+def place_market_order(action, symbol, amount):
+    try:
+        if action == "buy":
+            order = exchange.create_market_buy_order(symbol, amount)
+        elif action == "sell":
+            order = exchange.create_market_sell_order(symbol, amount)
+        logger.info(f"Placed {action} order: {symbol}, amount={amount}, order_id={order['id']}")
+        return order['id']
+    except Exception as e:
+        logger.error(f"Error placing {action} order: {e}")
+        return None
+
+# AI decision logic (UNCHANGED)
 def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAKE_PROFIT_PERCENT, position=None, buy_price=None):
     if df.empty or len(df) < 1:
         logger.warning("DataFrame is empty or too small for decision.")
@@ -360,7 +391,9 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         logger.debug("Prevented consecutive buy order.")
         action = "hold"
     if action == "sell" and position is None:
-        logger.debug("Prevented sell order without open position.")
+        logger.debug("Prevent ..
+
+ed sell order without open position.")
         action = "hold"
 
     logger.debug(f"AI decision: action={action}, stop_loss={stop_loss}, take_profit={take_profit}")
@@ -392,6 +425,7 @@ KDJ J: {signal['j']:.2f}
 {f"Take-Profit: {signal['take_profit']:.2f}" if signal['take_profit'] is not None else ""}
 {f"Total Profit: {signal['total_profit']:.2f}" if signal['action'] in ["buy", "sell"] else ""}
 {f"Profit: {signal['profit']:.2f}" if signal['action'] == "sell" else ""}
+{f"Order ID: {signal['order_id']}" if signal.get('order_id') else ""}
 """
             bot.send_message(chat_id=chat_id, text=message)
             logger.info(f"Telegram message sent successfully")
@@ -472,7 +506,7 @@ def trading_bot():
                 logger.error(f"Failed to fetch historical data for {SYMBOL}.")
                 return
 
-    interval_seconds = INTER_SECONDS   #  used timing
+    interval_seconds = INTER_SECONDS
     logger.info(f"Using interval of {interval_seconds} seconds for timeframe {TIMEFRAME}")
 
     seconds_to_next, next_boundary = align_to_next_boundary(interval_seconds)
@@ -493,12 +527,14 @@ def trading_bot():
                     if not pd.isna(latest_data['Close']):
                         profit = latest_data['Close'] - buy_price
                         total_profit += profit
-                        signal = create_signal("sell", latest_data['Close'], latest_data, df, profit, total_profit, "Bot stopped due to time limit")
+                        order_id = place_market_order("sell", SYMBOL, position_amount)
+                        signal = create_signal("sell", latest_data['Close'], latest_data, df, profit, total_profit, "Bot stopped due to time limit", order_id)
                         store_signal(signal)
                         send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
                         logger.info(f"Generated signal on stop: {signal['action']} at {signal['price']}")
                         latest_signal = signal
                     position = None
+                    position_amount = None
                 logger.info("Bot stopped due to time limit")
             break
 
@@ -517,6 +553,7 @@ def trading_bot():
                     pause_start = None
                     pause_duration = 0
                     position = None
+                    position_amount = None
                     logger.info("Bot resumed after pause")
 
             now = datetime.now()
@@ -547,12 +584,14 @@ def trading_bot():
                                 if bot_active and position == "long":
                                     profit = current_price - buy_price
                                     total_profit += profit
-                                    signal = create_signal("sell", current_price, latest_data, df, profit, total_profit, "Bot stopped via Telegram")
+                                    order_id = place_market_order("sell", SYMBOL, position_amount)
+                                    signal = create_signal("sell", current_price, latest_data, df, profit, total_profit, "Bot stopped via Telegram", order_id)
                                     store_signal(signal)
                                     send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
                                     logger.info(f"Generated signal on /stop: {signal['action']} at {signal['price']}")
                                     latest_signal = signal
                                     position = None
+                                    position_amount = None
                                 bot_active = False
                             bot.send_message(chat_id=command_chat_id, text="Bot stopped.")
                         elif text.startswith('/stop') and text[5:].isdigit():
@@ -564,12 +603,14 @@ def trading_bot():
                                 if position == "long":
                                     profit = current_price - buy_price
                                     total_profit += profit
-                                    signal = create_signal("sell", current_price, latest_data, df, profit, total_profit, "Bot paused via Telegram")
+                                    order_id = place_market_order("sell", SYMBOL, position_amount)
+                                    signal = create_signal("sell", current_price, latest_data, df, profit, total_profit, "Bot paused via Telegram", order_id)
                                     store_signal(signal)
                                     send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
                                     logger.info(f"Generated signal on /stopN: {signal['action']} at {signal['price']}")
                                     latest_signal = signal
                                     position = None
+                                    position_amount = None
                                 bot_active = False
                             bot.send_message(chat_id=command_chat_id, text=f"Bot paused for {pause_duration/60} minutes.")
                         elif text == '/start':
@@ -577,6 +618,7 @@ def trading_bot():
                                 if not bot_active:
                                     bot_active = True
                                     position = None
+                                    position_amount = None
                                     pause_start = None
                                     pause_duration = 0
                                     bot.send_message(chat_id=command_chat_id, text="Bot started.")
@@ -584,6 +626,7 @@ def trading_bot():
                             with bot_lock:
                                 bot_active = True
                                 position = None
+                                position_amount = None
                                 buy_price = None
                                 pause_start = None
                                 pause_duration = 0
@@ -630,25 +673,38 @@ def trading_bot():
 
             action = "hold"
             profit = 0
+            order_id = None
             msg = f"HOLD {SYMBOL} at {current_price:.2f}"
             with bot_lock:
                 if bot_active and recommended_action == "buy" and position is None:
-                    position = "long"
-                    buy_price = current_price
-                    action = "buy"
-                    msg = f"BUY {SYMBOL} at {current_price:.2f}"
+                    usdt_balance = get_available_balance('USDT')
+                    if usdt_balance < ORDER_SIZE_USDT:
+                        logger.error(f"Insufficient USDT balance: {usdt_balance} < {ORDER_SIZE_USDT}")
+                        msg = f"BUY FAILED: Insufficient USDT balance ({usdt_balance})"
+                    else:
+                        amount = ORDER_SIZE_USDT / current_price
+                        order_id = place_market_order("buy", SYMBOL, amount)
+                        if order_id:
+                            position = "long"
+                            buy_price = current_price
+                            position_amount = amount
+                            action = "buy"
+                            msg = f"BUY {SYMBOL} at {current_price:.2f}, Amount: {amount:.6f}"
                 elif bot_active and recommended_action == "sell" and position == "long":
-                    profit = current_price - buy_price
-                    total_profit += profit
-                    position = None
-                    action = "sell"
-                    msg = f"SELL {SYMBOL} at {current_price:.2f}, Profit: {profit:.2f}"
-                    if stop_loss and current_price <= stop_loss:
-                        msg += " (Stop-Loss)"
-                    elif take_profit and current_price >= take_profit:
-                        msg += " (Take-Profit)"
+                    order_id = place_market_order("sell", SYMBOL, position_amount)
+                    if order_id:
+                        profit = current_price - buy_price
+                        total_profit += profit
+                        position = None
+                        position_amount = None
+                        action = "sell"
+                        msg = f"SELL {SYMBOL} at {current_price:.2f}, Profit: {profit:.2f}"
+                        if stop_loss and current_price <= stop_loss:
+                            msg += " (Stop-Loss)"
+                        elif take_profit and current_price >= take_profit:
+                            msg += " (Take-Profit)"
 
-            signal = create_signal(action, current_price, latest_data, df, profit, total_profit, msg)
+            signal = create_signal(action, current_price, latest_data, df, profit, total_profit, msg, order_id)
             store_signal(signal)
             latest_signal = signal
             logger.debug(f"Updated latest_signal: {signal}")
@@ -672,7 +728,7 @@ def trading_bot():
             time.sleep(seconds_to_next if seconds_to_next > 1 else interval_seconds)
 
 # Helper functions
-def create_signal(action, current_price, latest_data, df, profit, total_profit, msg):
+def create_signal(action, current_price, latest_data, df, profit, total_profit, msg, order_id=None):
     latest = df.iloc[-1]
     return {
         'time': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -695,7 +751,8 @@ def create_signal(action, current_price, latest_data, df, profit, total_profit, 
         'j': latest['j'] if not pd.isna(latest['j']) else 0.0,
         'diff': latest['diff'] if not pd.isna(latest['diff']) else 0.0,
         'message': msg,
-        'timeframe': TIMEFRAME
+        'timeframe': TIMEFRAME,
+        'order_id': order_id
     }
 
 def store_signal(signal):
@@ -708,8 +765,8 @@ def store_signal(signal):
             INSERT INTO trades (
                 time, action, symbol, price, open_price, close_price, volume,
                 percent_change, stop_loss, take_profit, profit, total_profit,
-                ema1, ema2, rsi, k, d, j, diff, message, timeframe
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ema1, ema2, rsi, k, d, j, diff, message, timeframe, order_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             signal['time'], signal['action'], signal['symbol'], signal['price'],
             signal['open_price'], signal['close_price'], signal['volume'],
@@ -717,11 +774,11 @@ def store_signal(signal):
             signal['profit'], signal['total_profit'],
             signal['ema1'], signal['ema2'], signal['rsi'],
             signal['k'], signal['d'], signal['j'], signal['diff'],
-            signal['message'], signal['timeframe']
+            signal['message'], signal['timeframe'], signal['order_id']
         ))
         conn.commit()
         logger.debug("Signal stored successfully")
-        upload_to_github('r_bot.db', 'r_bot.db')  # upload_to_github('r_bot.db', 'data/r_bot.db')  # upload_to_github('r_bot.db', 'r_bot.db')   #  database
+        upload_to_github('r_bot.db', 'r_bot.db')
     except Exception as e:
         logger.error(f"Error storing signal: {e}")
 
@@ -802,7 +859,6 @@ def index():
         if conn is None:
             logger.error("Cannot render index.html: Database connection is None")
             return jsonify({"error": "Database not initialized. Please check server logs."}), 500
-        # Check if latest_signal is stale (older than 65 seconds)
         signal_time = datetime.strptime(latest_signal['time'], "%Y-%m-%d %H:%M:%S")
         if (datetime.now() - signal_time).total_seconds() > 65:
             logger.debug("latest_signal is stale, fetching from database")
