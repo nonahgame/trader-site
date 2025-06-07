@@ -329,7 +329,6 @@ def get_available_balance(asset):
         return available
     except Exception as e:
         logger.error(f"Error fetching balance for {asset}: {e}")
-       વ
 
         return 0.0
 
