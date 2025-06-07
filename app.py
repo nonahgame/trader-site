@@ -66,7 +66,7 @@ exchange = ccxt.binance({
     'apiKey': BINANCE_API_KEY,
     'secret': BINANCE_API_SECRET,
     'enableRateLimit': True,
-    'testnet': True,
+    'testnet': False,
 })
 
 def upload_to_github(file_path, file_name):
