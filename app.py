@@ -16,9 +16,9 @@ import atexit
 import base64
 import json
 
-# Configure logging
+# Configure logging with enhanced format
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s - [%(filename)s:%(lineno)d]',
     level=logging.DEBUG,
     handlers=[
         logging.FileHandler('r_bot.log'),
@@ -41,7 +41,7 @@ app = Flask(__name__)
 # Environment variables
 BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID")
-SYMBOL = os.getenv("SYMBOL", "BTC/USDT")  # Updated default to Binance-compatible symbol
+SYMBOL = os.getenv("SYMBOL", "BTC/USDT")
 TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -2.0))
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 2.0))
@@ -49,10 +49,10 @@ STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 61200))
 INTER_SECONDS = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
-GITHUB_PATH = os.getenv("GITHUB_PATH", "data/r_bot.db")
+GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
 BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "BINANCE_API_KEY")
 BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET", "BINANCE_API_SECRET")
-ORDER_SIZE_USDT = float(os.getenv("ORDER_SIZE_USDT", 14.0))  # Amount in USDT per trade
+ORDER_SIZE_USDT = float(os.getenv("ORDER_SIZE_USDT", 14.0))
 
 # GitHub API setup
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
@@ -148,6 +148,7 @@ bot_lock = threading.Lock()
 conn = None
 position = None
 buy_price = None
+position_amount = None
 total_profit = 0
 pause_duration = 0
 pause_start = None
@@ -226,7 +227,7 @@ def setup_database():
         conn.commit()
         logger.info(f"Database initialized at {db_path}")
     except Exception as e:
-        logger.error(f"Database setup error: {e}")
+        logger.error(f"Database setup error: {e}", exc_info=True)
         conn = None
 
 # Initialize database immediately
@@ -251,7 +252,7 @@ def get_latest_signal_from_db():
             return signal
         return None
     except Exception as e:
-        logger.error(f"Error fetching latest signal from DB: {e}")
+        logger.error(f"Error fetching latest signal from DB: {e}", exc_info=True)
         return None
 
 # Delete Telegram webhook with retries
@@ -270,7 +271,7 @@ def delete_webhook(retries=3, delay=5):
         logger.error(f"Failed to delete webhook after {retries} attempts")
         return False
     except Exception as e:
-        logger.error(f"Error initializing bot for webhook deletion: {e}")
+        logger.error(f"Error initializing bot for webhook deletion: {e}", exc_info=True)
         return False
 
 # Fetch price data
@@ -294,7 +295,7 @@ def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, r
             logger.debug(f"Fetched price data: {selected_data.to_dict()}")
             return selected_data
         except Exception as e:
-            logger.error(f"Error fetching price (attempt {attempt + 1}/{retries}): {e}")
+            logger.error(f"Error fetching price (attempt {attempt + 1}/{retries}): {e}", exc_info=True)
             if attempt < retries - 1:
                 time.sleep(delay)
     logger.error(f"Failed to fetch price for {symbol} after {retries} attempts.")
@@ -317,7 +318,7 @@ def add_technical_indicators(df):
         logger.debug(f"Technical indicators calculated: {df.iloc[-1][['ema1', 'ema2', 'rsi', 'k', 'd', 'j', 'diff']].to_dict()}")
         return df
     except Exception as e:
-        logger.error(f"Error calculating indicators: {e}")
+        logger.error(f"Error calculating indicators: {e}", exc_info=True)
         return df
 
 # Get available balance
@@ -328,8 +329,7 @@ def get_available_balance(asset):
         logger.debug(f"Available {asset} balance: {available}")
         return available
     except Exception as e:
-        logger.error(f"Error fetching balance for {asset}: {e}")
-        વ
+        logger.error(f"Error fetching balance for {asset}: {e}", exc_info=True)
         return 0.0
 
 # Place market order
@@ -342,10 +342,10 @@ def place_market_order(action, symbol, amount):
         logger.info(f"Placed {action} order: {symbol}, amount={amount}, order_id={order['id']}")
         return order['id']
     except Exception as e:
-        logger.error(f"Error placing {action} order: {e}")
+        logger.error(f"Error placing {action} order: {e}", exc_info=True)
         return None
 
-# AI decision logic (UNCHANGED)
+# AI decision logic (corrected)
 def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAKE_PROFIT_PERCENT, position=None, buy_price=None):
     if df.empty or len(df) < 1:
         logger.warning("DataFrame is empty or too small for decision.")
@@ -390,9 +390,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         logger.debug("Prevented consecutive buy order.")
         action = "hold"
     if action == "sell" and position is None:
-        logger.debug("Prevent ..
-
-ed sell order without open position.")
+        logger.debug("Prevented sell order without open position.")  # Fixed unterminated string
         action = "hold"
 
     logger.debug(f"AI decision: action={action}, stop_loss={stop_loss}, take_profit={take_profit}")
@@ -430,7 +428,7 @@ KDJ J: {signal['j']:.2f}
             logger.info(f"Telegram message sent successfully")
             return
         except Exception as e:
-            logger.error(f"Error sending Telegram message (attempt {attempt + 1}/{retries}): {e}")
+            logger.error(f"Error sending Telegram message (attempt {attempt + 1}/{retries}): {e}", exc_info=True)
             if attempt < retries - 1:
                 time.sleep(delay)
     logger.error(f"Failed to send Telegram message after {retries} attempts")
@@ -450,7 +448,7 @@ def timeframe_to_seconds(timeframe):
             logger.error(f"Unsupported timeframe unit: {unit}")
             return 60
     except Exception as e:
-        logger.error(f"Error parsing timeframe {timeframe}: {e}")
+        logger.error(f"Error parsing timeframe {timeframe}: {e}", exc_info=True)
         return 60
 
 # Align to next time boundary
@@ -466,7 +464,7 @@ def align_to_next_boundary(interval_seconds):
 
 # Trading bot logic
 def trading_bot():
-    global bot_active, position, buy_price, total_profit, pause_duration, pause_start, latest_signal, conn, last_valid_price, stop_time
+    global bot_active, position, buy_price, total_profit, pause_duration, pause_start, latest_signal, conn, last_valid_price, stop_time, position_amount
     if conn is None:
         logger.error("Database connection not initialized. Cannot start trading bot.")
         return
@@ -498,7 +496,7 @@ def trading_bot():
             last_valid_price['diff'] = last_valid_price['Close'] - last_valid_price['Open']
             break
         except Exception as e:
-            logger.error(f"Error fetching historical data (attempt {attempt + 1}/3): {e}")
+            logger.error(f"Error fetching historical data (attempt {attempt + 1}/3): {e}", exc_info=True)
             if attempt < 2:
                 time.sleep(5)
             else:
@@ -643,7 +641,7 @@ def trading_bot():
                             bot.send_message(chat_id=command_chat_id, text="Trade statistics printed to console. Run display_trade_statistics in a separate cell.")
                     last_update_id = update.update_id + 1
             except telegram.error.TelegramError as e:
-                logger.error(f"Error processing Telegram updates: {e}")
+                logger.error(f"Error processing Telegram updates: {e}", exc_info=True)
                 if "Conflict" in str(e):
                     logger.warning("Webhook conflict detected. Attempting to delete webhook again.")
                     if delete_webhook():
@@ -653,7 +651,7 @@ def trading_bot():
                         time.sleep(interval_seconds)
                         continue
             except Exception as e:
-                logger.error(f"Unexpected error processing Telegram updates: {e}")
+                logger.error(f"Unexpected error processing Telegram updates: {e}", exc_info=True)
 
             new_row = pd.DataFrame({
                 'Open': [latest_data['Open']],
@@ -722,7 +720,7 @@ def trading_bot():
             logger.debug(f"Sleeping for {seconds_to_next:.2f} seconds until next boundary at {next_boundary.strftime('%Y-%m-%d %H:%M:%S')}")
             time.sleep(seconds_to_next)
         except Exception as e:
-            logger.error(f"Error in trading loop: {e}")
+            logger.error(f"Error in trading loop: {e}", exc_info=True)
             seconds_to_next, _ = align_to_next_boundary(interval_seconds)
             time.sleep(seconds_to_next if seconds_to_next > 1 else interval_seconds)
 
@@ -779,7 +777,7 @@ def store_signal(signal):
         logger.debug("Signal stored successfully")
         upload_to_github('r_bot.db', 'r_bot.db')
     except Exception as e:
-        logger.error(f"Error storing signal: {e}")
+        logger.error(f"Error storing signal: {e}", exc_info=True)
 
 def get_performance():
     try:
@@ -811,7 +809,7 @@ Total Profit: {total_profit_db:.2f}
 """
         return message
     except Exception as e:
-        logger.error(f"Error fetching performance: {e}")
+        logger.error(f"Error fetching performance: {e}", exc_info=True)
         return f"Error fetching performance data: {str(e)}"
 
 def get_trade_counts():
@@ -846,7 +844,7 @@ Total Profit: {total_profit_db:.2f}
 """
         return message
     except Exception as e:
-        logger.error(f"Error fetching trade counts: {e}")
+        logger.error(f"Error fetching trade counts: {e}", exc_info=True)
         return f"Error fetching trade counts: {str(e)}"
 
 # Flask routes
@@ -874,7 +872,7 @@ def index():
         return render_template('index.html', signal=latest_signal, status=status, timeframe=TIMEFRAME,
                              trades=trades, stop_time=stop_time_str, current_time=current_time)
     except Exception as e:
-        logger.error(f"Error rendering index.html: {e}")
+        logger.error(f"Error rendering index.html: {e}", exc_info=True)
         return jsonify({"error": "Failed to render template"}), 500
 
 @app.route('/status')
@@ -897,7 +895,7 @@ def trades():
         trades = [dict(zip([col[0] for col in c.description], row)) for row in c.fetchall()]
         return jsonify(trades)
     except Exception as e:
-        logger.error(f"Error fetching trades: {e}")
+        logger.error(f"Error fetching trades: {e}", exc_info=True)
         return jsonify({"error": "Failed to fetch trades"}), 500
 
 # Cleanup
