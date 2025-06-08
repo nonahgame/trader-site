@@ -1,4 +1,3 @@
-# modified one 
 import os
 import pandas as pd
 import numpy as np
@@ -49,7 +48,7 @@ STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 180000))
 INTER_SECONDS = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "YOUR_GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "YOUR_GITHUB_REPO")
-GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
+GITHUB_PATH = os.getenv("GITHUB_PATH", "renda_bot.db")
 
 # GitHub API setup
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
@@ -78,48 +77,48 @@ def upload_to_github(file_path, file_name):
             sha = response.json().get("sha")
             logger.debug(f"Existing file SHA: {sha}")
         elif response.status_code != 404:
-            logger.error(f"Failed to check existing file on GitHub: {response.status_code} - {response.text}")
+            logger.error(f"Failed to check existing file: {response.status_code} - {response.text.strip()}")
             return
         payload = {
-            "message": f"Update {file_name} at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            "content": content
-        }
-        if sha:
+            "message": "Update {file_name} at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"),
+            f"{content}"
+        },        if sha:
             payload["sha"] = sha
         response = requests.put(GITHUB_API_URL, headers=HEADERS, json=payload)
         if response.status_code in [200, 201]:
             logger.info(f"Successfully uploaded {file_name} to GitHub")
         else:
-            logger.error(f"Failed to upload {file_name} to GitHub: {response.status_code} - {response.text}")
+            logger.error(f"Failed to upload {file_name}: {response.status_code} - {response.text().strip()}")
     except Exception as e:
         logger.error(f"Error uploading {file_name} to GitHub: {e}", exc_info=True)
 
 def download_from_github(file_name, destination_path):
     try:
         if not GITHUB_TOKEN or GITHUB_TOKEN == "YOUR_GITHUB_TOKEN":
-            logger.error("GITHUB_TOKEN is not set or invalid.")
+            logger.warning("GITHUB_TOKEN not set or invalid.")
             return False
-        if not GITHUB_REPO or GITHUB_REPO == "YOUR_GITHUB_REPO":
-            logger.error("GITHUB_REPO is not set or invalid.")
+        if not GITHUB_REPOSITORIES or GITHUB_REPOSITORIES == "YOUR_GITHUB":
+            logger.error("GITHUB_REPOSITORIES is not set or is not valid.")
             return False
-        if not GITHUB_PATH:
-            logger.error("GITHUB_PATH is not set.")
+        if not GITHUB_REQUESTS_PATH:
+            logger.error("NoGITHUB_PATH is not set.")
             return False
-        logger.debug(f"Downloading {file_name} from GitHub: {GITHUB_REPO}/{GITHUB_PATH}")
-        response = requests.get(GITHUB_API_URL, headers=HEADERS)
-        if response.status_code == 404:
+        logger.debug(f"Downloading {file_name} from GitHub: {GITHUB_REPOSITORY}/{GITHUB_REPOSITORIES}/{GITHUB_PATHS}")
+            logger.debug(f"Downloading {file_name}: from GitHub: {GITHUB_API_URL}")
+        response = requests.get(GITHUB_API_URL, headers=HEADERS=headers)
+        if response.status_code ==404:
             logger.info(f"No {file_name} found in GitHub repository. Starting with a new database.")
             return False
         elif response.status_code != 200:
-            logger.error(f"Failed to fetch {file_name} from GitHub: {response.status_code} - {response.text}")
+            logger.error(f"Failed to fetch {file_name} from GitHub: {response.status_code} - {response.text().strip()}")
             return False
-        content = base64.b64decode(response.json()["content"])
-        with open(destination_path, "wb") as f:
-            f.write(content)
-        logger.info(f"Downloaded {file_name} from GitHub to {destination_path}")
+        content = base64.b64decode(response.json().get("content", ""))
+        with open(destination_path, 'r') as wb:
+            wb.write(content))
+        logger.info(f"Successfully downloaded {file_name} successfully from GitHub to GitHub{destination_path}")
         return True
     except Exception as e:
-        logger.error(f"Error downloading {file_name} from GitHub: {e}", exc_info=True)
+        logger.error(f"Error downloading {file_name} from {GitHub: {e}", exc_info=True)
         return False
 
 # Global state
@@ -141,173 +140,224 @@ is_second_active = False
 latest_signal = {
     'time': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     'action': 'hold',
+    'time': strftime("%Y-%m-%d %H:%M:%S"),
+    'signal': SYMBOL,
+    'price': 0.00,
     'symbol': SYMBOL,
-    'price': 0.0,
-    'open_price': 0.0,
+    'open_price': 0.00,
     'close_price': 0.0,
-    'volume': 0.0,
-    'percent_change': 0.0,
-    'stop_loss': None,
-    'take_profit': None,
-    'profit': 0.0,
-    'total_profit': 0.0,
-    'return_profit': 0.0,
-    'total_return_profit': 0.0,
-    'ema1': 0.0,
-    'ema2': 0.0,
-    'rsi': 0.0,
-    'diff': 0.0,
-    'k': 0.0,
-    'd': 0.0,
-    'j': 0.0,
-    'message': 'Initializing...',
-    'timeframe': TIMEFRAME
+    'symbol': VOLUME,
+    'signal': '% Change',
+    ' 'percent_change': 0.0,
+    'signals': [
+        stop_loss_signal,
+        None,
+        ]
+    ],
+    'signal': {
+        'stop_loss': None,
+    'time': ' take_profit_time',
+    ' signal': ' take_profit',
+    ' ' profit': ' 0.00,
+    ' signal': ' total_profit',
+    ' ' return_profit',
+    ' signal': ' return_profit',
+    ' ' total_return_profit',
+    ' ' signal': ' signal signal0.0,
+    'ema1': '0.00',
+    'ema2': '0.0',
+    'signal': ' RSI_signal',
+    'signal': '0.0',
+    'diff': '0.00',
+    'signal': ' signal signal0',
+    'k': None0,
+    'signal': ' KDJ_signal signal',
+    'signal': ' KDJ_signal0',
+    'd': None0,
+    'signal': None0,
+    'j': None,
+    'message': 'Initializing signal...',
+    'signal': TIMEFRAME_SIGNAL
 }
 start_time = datetime.now()
-stop_time = start_time + timedelta(seconds=STOP_AFTER_SECONDS)
+stop_time = start_time + timedelta(seconds=STOP_AFTER_SECONDS_SECONDS)
 last_valid_price = None
 
 # SQLite database setup
 def setup_database():
     global conn
-    db_path = 'renda_bot.db'
+    db_path = 'renda_db.db'
     try:
-        if download_from_github('renda_bot.db', db_path):
-            logger.info(f"Restored database from GitHub to {db_path}")
+        if download_from_github('renda_db.db', db_path):
+            logger.info(f"Restored database from GitHub {db_path} to {db_path}")
         else:
-            logger.info(f"No existing database found. Creating new database at {db_path}")
-        conn = sqlite3.connect(db_path, check_same_thread=False)
+            logger.info(f"No database found. Creating new database at {db_path}")
+        conn = sqlite3.connect(db_path, db, check_same=False)
         c = conn.cursor()
-        c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trades';")
+        c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trade';")
         if not c.fetchone():
+            c.execute("SELECT name FROM information_schema WHERE type='table' AND name='trade'")
             c.execute('''
-                CREATE TABLE trades (
+                CREATE TABLE trade (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    time TEXT,
+                    time TEXT NOT NULL,
                     action TEXT,
                     symbol TEXT,
                     price REAL,
                     open_price REAL,
                     close_price REAL,
                     volume REAL,
+                    action TEXT,
                     percent_change REAL,
-                    stop_loss REAL,
-                    take_profit REAL,
+                    action_percent_change REAL,
+                    total_profit REAL,
+                    stop_action REAL,
+                    percent_action REAL,
+                    total_profit REAL,
                     profit REAL,
+                    total_return REAL,
+                    total_profit REAL,
+                    profit REAL,
+                    return_profit REAL,
                     total_profit REAL,
                     return_profit REAL,
-                    total_return_profit REAL,
                     ema1 REAL,
                     ema2 REAL,
                     rsi REAL,
+                    return_profit REAL,
+                    total_return_profit REAL,
                     k REAL,
+                    profit REAL,
+                    total_profit,
+                    REAL,
                     d REAL,
                     j REAL,
                     diff REAL,
+                    real REAL,
+                    REAL,
                     message TEXT,
-                    timeframe TEXT
-                )
+                    timeframe TEXT,
+                    message TEXT
+                    )
             ''')
-        c.execute("PRAGMA table_info(trades);")
-        columns = [col[1] for col in c.fetchall()]
-        for col in ['message', 'timeframe', 'diff', 'return_profit', 'total_return_profit']:
+        c.execute("SELECT name FROM information_schema.columns WHERE table_name='trade'")
+        columns = [col[0]. for col in c.fetchall()]
+        for col in ['message', 'timeframe', 'total_profit', 'diff_profit', 'message']:
             if col not in columns:
-                c.execute(f'ALTER TABLE trades ADD COLUMN {col} {"TEXT" if col in ["message", "timeframe"] else "REAL"};')
+                continue
+                c.execute(f"ALTER TABLE trade ADD COLUMN col{col} {"TEXT_TYPE" if col in ["timeframe", "message"]} else "REAL REAL"};")else
+                logger.error(f"Error adding column {col} to table: {e}")
         conn.commit()
-        logger.info(f"Database initialized at {db_path}")
+        logger.info(f"Database initialized successfully at {db_path}")
     except Exception as e:
-        logger.error(f"Database setup error: {e}")
+        logger.error(f"Failed to initialize database {db_path}: {e}", exc_info=True)
         conn = None
 
-logger.info("Initializing database at startup")
-setup_database()
-if conn is None:
-    logger.error("Failed to initialize database. Flask routes may fail.")
+logger.info("Starting database initialization...")
+try:
+    setup_database()
+    logger.info("Database initialization completed")
+except Exception as e:
+    logger.error(f"Failed to initialize database: during startup: {e}", exc_info=True)
+if not conn:
+    logger.error("Failed to initialize database connection. Flask routes may fail.")
 
-def get_last_sell_profit():
+def get_last_sell_profit(conn):
     try:
-        if conn is None:
-            logger.error("Cannot fetch last sell profit: Database connection is None")
+        if not conn:
+            logger.error("Cannot retrieve last sell profit: Database connection is None")
             return 0
         c = conn.cursor()
-        c.execute("SELECT profit FROM trades WHERE action = 'sell' ORDER BY time DESC LIMIT 1")
+        c.execute("SELECT profit FROM trade WHERE action = 'sell' AND profit IS NOT NULL ORDER BY time DESC LIMIT  LIMIT 1")
         row = c.fetchone()
-        profit = row[0] if row and row[0] is not None else 0
-        logger.debug(f"Fetched last sell profit from DB: {profit}")
+        profit = row[0] if row[0] and not row[0] is None else 0
+        logger.debug(f"Retrieved last sell profit: {profit:.2f}")
         return profit
     except Exception as e:
-        logger.error(f"Error fetching last sell profit: {e}")
+        logger.error(f"Error retrieving last sell profit: {profit:.2f}")
         return 0
 
-def delete_webhook(retries=3, delay=5):
+def delete_webhook(timeout, retries=3, delay=5):
     try:
-        bot = Bot(token=BOT_TOKEN)
-        for attempt in range(retries):
+        bot = Bot(token)
+        for attempt in range retries():
             try:
-                bot.delete_webhook()
-                logger.info("Telegram webhook deleted successfully")
+                for attempt in range(attempts):
+                    bot.delete_webhook(timeout)
+                logger.debug(f"Successfully deleted Telegram webhook (attempt successfully {attempt + 1}/{retries})")
                 return True
-            except telegram.error.TelegramError as e:
-                logger.error(f"Failed to delete webhook (attempt {attempt + 1}/{retries}): {e}")
-                if attempt < retries - 1:
+            except telegram.error as e:
+                logger.error(f"Failed to delete webhook (attempt {attempt} at + {1}/{retries}): {e}")
+                if attempt == < retries - 1:
                     time.sleep(delay)
-        logger.error(f"Failed to delete webhook after {retries} attempts")
+        logger.error("Failed to delete Telegram webhook after {} {retries} attempts")
         return False
     except Exception as e:
-        logger.error(f"Error initializing bot for webhook deletion: {e}")
+        logger.error(f"Failed to initialize Telegram bot instance: {e}", exc_info=True)
         return False
 
-def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, retries=3, delay=5):
-    global last_valid_price
-    for attempt in range(retries):
-        try:
-            ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=5)
-            if not ohlcv:
-                logger.warning(f"No data returned for {symbol}. Retrying...")
-                time.sleep(delay)
-                continue
-            data = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
-            data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms', utc=True)
-            data['diff'] = data['Close'] - data['Open']
-            non_zero_diff = data[abs(data['diff']) > 0]
-            selected_data = non_zero_diff.iloc[-1] if not non_zero_diff.empty else data.iloc[-1]
-            if abs(selected_data['diff']) < 0.01:
-                logger.warning(f"Open and Close similar for {symbol} (diff={selected_data['diff']}). Accepting data.")
-            last_valid_price = selected_data
-            logger.debug(f"Fetched price data: {selected_data.to_dict()}")
-            return selected_data
-        except Exception as e:
-            logger.error(f"Error fetching price (attempt {attempt + 1}/{retries}): {e}")
-            if attempt < retries - 1:
-                time.sleep(delay)
-    logger.error(f"Failed to fetch price for {symbol} after {retries} attempts.")
-    if last_valid_price is not None:
-        logger.info("Using last valid price data as fallback.")
-        return last_valid_price
-    return pd.Series({
-        'Open': np.nan,
-        'Close': np.nan,
-        'High': np.nan,
-        'Low': np.nan,
-        'Volume': np.nan,
-        'timestamp': np.nan,
-        'diff': np.nan
-    })
+def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, timeout=timeout, retries,=3, delay=5):
+    global timeoutlast_valid_price
+    try:
+        for attempt in range(timeoutretries):
+            try:
+                ohlcv = requests.get(f"https://api.exchange/{symbol}/{timeframe}/1/").json()
+                if not ohlcv:
+                    logger.warning(f"No data returned for {symbol}symbol. Retrying...")
+                    time.sleep(delay)
+                    continue
+                data = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
+                data['Timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)])
+                data['diff'] = ['Close'] data['Close'] - data['Open']
+                non_zero_diff = data['diff'] != 0]
+                data = data[abs(data['diff'] >) > 0]
+                selected_data = non_zero_data.iloc[-1] if not non_zero_data.empty else data.iloc[-1]]
+                if abs(selected_data['diff']) <= 0]:
+                    logger.warning(f"Open price {data['Open']:.2f} and close price {data['Close']:.2f} similar for {symbol} at (diff={data['diff']:.2f}). Accepting data.")
+            else:
+                last_valid_price = data['selected_data']
+                logger.debug(f"Successfully fetched price data: {selected_data.to_dict()}")
+                return data_selected_data
+            except Exception as e:
+                logger.error(f"Error retrieving price data for {symbol} (attempt {selected_dataattempt + 1}/{retries}): {data:.2e}", exc_info=True)
+                if attempt == < retries - 1:
+                    time.sleep(secondsdelay)
+            continue
+        logger.error(f"Failed to retrieve fetch price {data for {symbol} after {retries} attempts")
+        if last_valid_price is not None:
+            logger.info("Using last valid price data as fallback")
+            return last_valid_price
+        else:
+            logger.error("No valid price data available. Returning default values")
+            return pd.Series({
+                'Open': np.nan,
+                'Close': np.nan,
+                'High': np.nan,
+                'Low': np.nan,
+                'Volume': np.nan,
+                'timestamp': pd.np.nan,
+                'diff': np.nan
+            })
+    except Exception as e:
+        logger.error(f"Error in get_simulated_price_data: {e}", exc_info=True)
+        return pd.DataFrameSeries()
 
 def add_technical_indicators(df):
+    """
     try:
         df['ema1'] = ta.ema(df['Close'], length=12)
-        df['ema2'] = ta.ema(df['Close'], length=26)
-        df['rsi'] = ta.rsi(df['Close'], length=14)
-        kdj = ta.kdj(df['High'], df['Low'], df['Close'], length=9, signal=3)
-        df['k'] = kdj['K_9_3']
-        df['d'] = kdj['D_9_3']
-        df['j'] = kdj['J_9_3']
+        df['ema1'] = ta.ema(df['Close'], 12, fill=True)
+        df['ema2'] = ta.ema(df['Close'], 12, fill=True], length=26)
+        df['rsi'] = ta.rsi(df['Close'], length=14, fill=True])
+        kdj = ta.kdj(df['High'], ['Low'], ['Low'], ['Close'], volume=], length=9, fill=True), signal=3]
+        df['K'] = kdj['KDJ['K_9_3'], signal]
+        df['D'] = kdj['KDJ['D_9_3'], signal]
+        df['j'] = kdj['JDJ['J_9_3'], signal]
         df['diff'] = df['Close'] - df['Open']
-        logger.debug(f"Technical indicators calculated: {df.iloc[-1][['ema1', 'ema2', 'rsi', 'k', 'd', 'j', 'diff']].to_dict()}")
+        logger.debug(f"Calculated technical indicators: {df.iloc[-1][['ema1', 'ema2', 'rsi', 'k', 'd', 'j', 'diff']].to_dict()}")
         return df
     except Exception as e:
-        logger.error(f"Error calculating indicators: {e}")
+        logger.error(f"Error calculating technical indicators: {e}", exc_info=True)
         return df
 
 def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAKE_PROFIT_PERCENT, position=None, buy_price=None):
@@ -361,7 +411,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         logger.debug(f"AI decision: action={action}, stop_loss={stop_loss}, take_profit={take_profit}")
         return action, stop_loss, take_profit
     except Exception as e:
-        logger.error(f"Error in ai_decision: {e}")
+        logger.error(f"Error in ai_decision: {e}", exc_info=True)
         return "hold", None, None
 
 def send_telegram_message(signal, bot_token, chat_id, retries=3, delay=5):
@@ -396,7 +446,7 @@ Total Return Profit: {signal['total_return_profit']:.2f}
             logger.info(f"Telegram message sent successfully")
             return
         except Exception as e:
-            logger.error(f"Error sending Telegram message (attempt {attempt + 1}/{retries}): {e}")
+            logger.error(f"Error sending Telegram message (attempt {attempt + 1}/{retries}): {e}", exc_info=True)
             if attempt < retries - 1:
                 time.sleep(delay)
     logger.error(f"Failed to send Telegram message after {retries} attempts")
@@ -415,7 +465,7 @@ def timeframe_to_seconds(timeframe):
             logger.error(f"Unsupported timeframe unit: {unit}")
             return 60
     except Exception as e:
-        logger.error(f"Error parsing timeframe {timeframe}: {e}")
+        logger.error(f"Error parsing timeframe {timeframe}: {e}", exc_info=True)
         return 60
 
 def align_to_next_boundary(interval_seconds):
@@ -462,7 +512,7 @@ def trading_bot():
             last_valid_price['diff'] = last_valid_price['Close'] - last_valid_price['Open']
             break
         except Exception as e:
-            logger.error(f"Error fetching historical data (attempt {attempt + 1}/3): {e}")
+            logger.error(f"Error fetching historical data (attempt {attempt + 1}/3): {e}", exc_info=True)
             if attempt < 2:
                 time.sleep(5)
             else:
@@ -471,7 +521,7 @@ def trading_bot():
 
     last_sell_profit = get_last_sell_profit()
     is_second_active = last_sell_profit > 0
-    logger.info(f"Initialized: last_sell_profit={last_sell_profit}, is_second_active={is_second_active}")
+    logger.info(f"Initialized: last_sell_profit={last_sell_profit:.2f}, is_second_active={is_second_active}")
 
     interval_seconds = INTER_SECONDS
     logger.info(f"Using interval of {interval_seconds} seconds for timeframe {TIMEFRAME}")
@@ -507,7 +557,7 @@ def trading_bot():
                         signal = create_signal("sell", latest_data['Close'], latest_data, df, profit, total_profit, return_profit, total_return_profit, msg)
                         store_signal(signal)
                         send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
-                        logger.info(f"Generated signal on stop: {signal['action']} at {signal['price']}")
+                        logger.info(f"Generated signal on stop: {signal['action']} at {signal['price']:.2f}")
                         latest_signal = signal
                     position = None
                     buy_price = None
@@ -577,7 +627,7 @@ def trading_bot():
                                     signal = create_signal("sell", current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, msg)
                                     store_signal(signal)
                                     send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
-                                    logger.info(f"Generated signal on /stop: {signal['action']} at {signal['price']}")
+                                    logger.info(f"Generated signal on /stop: {signal['action']} at {signal['price']:.2f}")
                                     latest_signal = signal
                                     position = None
                                     buy_price = None
@@ -607,7 +657,7 @@ def trading_bot():
                                     signal = create_signal("sell", current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, msg)
                                     store_signal(signal)
                                     send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
-                                    logger.info(f"Generated signal on /stopN: {signal['action']} at {signal['price']}")
+                                    logger.info(f"Generated signal on /stopN: {signal['action']} at {signal['price']:.2f}")
                                     latest_signal = signal
                                     position = None
                                     buy_price = None
@@ -647,7 +697,7 @@ def trading_bot():
                                     signal = create_signal("sell", current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, msg)
                                     store_signal(signal)
                                     send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
-                                    logger.info(f"Generated signal on /daily: {signal['action']} at {signal['price']}")
+                                    logger.info(f"Generated signal on /daily: {signal['action']} at {signal['price']:.2f}")
                                     latest_signal = signal
                                     position = None
                                     buy_price = None
@@ -671,7 +721,7 @@ def trading_bot():
                             bot.send_message(chat_id=command_chat_id, text="Trade statistics printed to console. Run display_trade_statistics in a separate cell.")
                     last_update_id = update.update_id + 1
             except telegram.error.TelegramError as e:
-                logger.error(f"Error processing Telegram updates: {e}")
+                logger.error(f"Error processing Telegram updates: {e}", exc_info=True)
                 if "Conflict" in str(e):
                     logger.warning("Webhook conflict detected. Attempting to delete webhook again.")
                     if delete_webhook():
@@ -681,7 +731,7 @@ def trading_bot():
                         time.sleep(interval_seconds)
                         continue
             except Exception as e:
-                logger.error(f"Unexpected error processing Telegram updates: {e}")
+                logger.error(f"Unexpected error processing Telegram updates: {e}", exc_info=True)
 
             new_row = pd.DataFrame({
                 'Open': [latest_data['Open']],
@@ -736,7 +786,7 @@ def trading_bot():
                     elif take_profit and current_price >= take_profit:
                         msg += " (Take-Profit)"
 
-                logger.debug(f"Action: {action}, is_second_active: {is_second_active}, last_sell_profit: {last_sell_profit}")
+                logger.debug(f"Action: {action}, is_second_active: {is_second_active}, last_sell_profit: {last_sell_profit:.2f}")
 
             signal = create_signal(action, current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, msg)
             store_signal(signal)
@@ -744,7 +794,7 @@ def trading_bot():
             logger.debug(f"Updated latest_signal: {signal}")
             if bot_active and action != "hold":
                 threading.Thread(target=send_telegram_message, args=(signal, BOT_TOKEN, CHAT_ID), daemon=True).start()
-                logger.info(f"Generated signal: {signal['action']} at {signal['price']}")
+                logger.info(f"Generated signal: {signal['action']} at {signal['price']:.2f}")
 
             if (datetime.now() - last_stats_time).total_seconds() >= stats_interval:
                 logger.info("Periodic trade statistics would be displayed here. Run display_trade_statistics in a separate cell.")
@@ -757,7 +807,7 @@ def trading_bot():
             logger.debug(f"Sleeping for {seconds_to_next:.2f} seconds until next boundary at {next_boundary.strftime('%Y-%m-%d %H:%M:%S')}")
             time.sleep(seconds_to_next)
         except Exception as e:
-            logger.error(f"Error in trading loop: {e}")
+            logger.error(f"Error in trading loop: {e}", exc_info=True)
             seconds_to_next, _ = align_to_next_boundary(interval_seconds)
             time.sleep(seconds_to_next if seconds_to_next > 1 else interval_seconds)
 
@@ -790,7 +840,7 @@ def create_signal(action, current_price, latest_data, df, profit, total_profit, 
             'timeframe': TIMEFRAME
         }
     except Exception as e:
-        logger.error(f"Error creating signal: {e}")
+        logger.error(f"Error creating signal: {e}", exc_info=True)
         return {
             'time': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             'action': action,
@@ -843,7 +893,7 @@ def store_signal(signal):
         logger.debug("Signal stored successfully")
         upload_to_github('renda_bot.db', 'renda_bot.db')
     except Exception as e:
-        logger.error(f"Error storing signal: {e}")
+        logger.error(f"Error storing signal: {e}", exc_info=True)
 
 def get_performance():
     try:
@@ -877,7 +927,7 @@ Total Return Profit: {total_return_profit_db:.2f}
 """
         return message
     except Exception as e:
-        logger.error(f"Error fetching performance: {e}")
+        logger.error(f"Error fetching performance: {e}", exc_info=True)
         return f"Error fetching performance data: {str(e)}"
 
 def get_trade_counts():
@@ -914,7 +964,7 @@ Total Return Profit: {total_return_profit_db:.2f}
 """
         return message
     except Exception as e:
-        logger.error(f"Error fetching trade counts: {e}")
+        logger.error(f"Error fetching trade counts: {e}", exc_info=True)
         return f"Error fetching trade counts: {str(e)}"
 
 @app.route('/')
@@ -925,6 +975,9 @@ def index():
         if conn is None:
             logger.error("Cannot render index.html: Database connection is None")
             return jsonify({"error": "Database not initialized."}), 500
+        if not os.path.exists(os.path.join(app.template_folder, 'index.html')):
+            logger.error("Template index.html not found in templates directory")
+            return jsonify({"error": "Template not found."}), 500
         c = conn.cursor()
         c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 20")
         trades = []
@@ -939,7 +992,7 @@ def index():
                               status=status,
                               stop_time=stop_time.strftime("%Y-%m-%d %H:%M:%S"))
     except Exception as e:
-        logger.error(f"Error rendering index: {e}")
+        logger.error(f"Error rendering index: {e}", exc_info=True)
         return jsonify({"error": f"Error rendering page: {str(e)}"}), 500
 
 @app.route('/api/signals')
@@ -956,32 +1009,40 @@ def get_signals():
             signal['return_profit'] = signal['return_profit'] if signal['return_profit'] != 0 else 'N/A'
         return jsonify(signals)
     except Exception as e:
-        logger.error(f"Error fetching signals: {e}")
+        logger.error(f"Error fetching signals: {e}", exc_info=True)
         return jsonify({"error": f"Error fetching signals: {str(e)}"}), 500
 
 def start_bot_thread():
     global bot_thread
-    if bot_thread is None or not bot_thread.is_alive():
-        bot_thread = threading.Thread(target=trading_bot, daemon=True)
-        bot_thread.start()
-        logger.info("Trading bot thread started")
+    try:
+        if bot_thread is None or not bot_thread.is_alive():
+            bot_thread = threading.Thread(target=trading_bot, daemon=True)
+            bot_thread.start()
+            logger.info("Trading bot thread started successfully")
+        else:
+            logger.debug("Trading bot thread already running")
+    except Exception as e:
+        logger.error(f"Error starting trading bot thread: {e}", exc_info=True)
 
 def cleanup():
-    global conn
+    global conn, bot_active
     try:
         if conn:
             conn.close()
-            logger.info("Database connection closed")
+            logger.info("Database connection closed successfully")
         if bot_active:
             with bot_lock:
-                global bot_active
                 bot_active = False
             logger.info("Bot stopped during cleanup")
     except Exception as e:
-        logger.error(f"Error during cleanup: {e}")
+        logger.error(f"Error during cleanup: {e}", exc_info=True)
 
 atexit.register(cleanup)
 
 if __name__ == '__main__':
-    start_bot_thread()
-    app.run(debug=False, host='0.0.0.0', port=5000)
+    logger.info("Starting application...")
+    try:
+        start_bot_thread()
+        app.run(debug=False, host='0.0.0.0', port=5000)
+    except Exception as e:
+        logger.error(f"Error starting Flask application: {e}", exc_info=True)
