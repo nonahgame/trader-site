@@ -1,4 +1,3 @@
-1st code
 <!-- templates/index.html -->
 <!DOCTYPE html>
 <html>
@@ -146,17 +145,13 @@
             {% if signal.take_profit %}
             <li>Take-Profit: {{ "%.2f"|format(signal.take_profit) }}</li>
             {% endif %}
-            {% if signal.action in ["buy", "sell"] %}
-            <li>Total Profit: {{ "%.2f"|format(signal.total_profit) }}</li>
-            {% endif %}
+            <li class="{% if signal.total_profit < 0 %}negative{% else %}non-negative{% endif %}">Total Profit: {{ "%.2f"|format(signal.total_profit) }}</li>
             {% if signal.action == "sell" %}
-            <li>Profit: {{ "%.2f"|format(signal.profit) }}</li>
+            <li class="{% if signal.profit < 0 %}negative{% else %}non-negative{% endif %}">Profit: {{ "%.2f"|format(signal.profit) }}</li>
             {% endif %}
-            {% if signal.action in ["buy2", "sell2"] %}
-            <li>Total Return Profit: {{ "%.2f"|format(signal.total_return_profit) }}</li>
-            {% endif %}
+            <li class="{% if signal.total_return_profit < 0 %}negative{% else %}non-negative{% endif %}">Total Return Profit: {{ "%.2f"|format(signal.total_return_profit) }}</li>
             {% if signal.action == "sell2" %}
-            <li>Return Profit: {{ "%.2f"|format(signal.return_profit) }}</li>
+            <li class="{% if signal.return_profit < 0 %}negative{% else %}non-negative{% endif %}">Return Profit: {{ "%.2f"|format(signal.return_profit) }}</li>
             {% endif %}
         </ul>
     </div>
