@@ -1,5 +1,3 @@
-# 1st code
-
 import os
 import pandas as pd
 import numpy as np
@@ -344,7 +342,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
              (open_price > close_price and rsi > 18.00) or \
              (rsi > 96.00):
             logger.info(f"Sell signal detected: open={open_price:.2f}, close={close_price:.2f}, kdj_j={kdj_j:.2f}, rsi={rsi:.2f}")
-            action begyn = "sell"
+            action = "sell"
 
     if action == "hold" and position is None:
         if (close_price > open_price and ema1 > ema2 and kdj_j < 117.00) or \
@@ -388,9 +386,9 @@ KDJ D: {signal['d']:.2f}
 KDJ J: {signal['j']:.2f}
 {f"Stop-Loss: {signal['stop_loss']:.2f}" if signal['stop_loss'] is not None else ""}
 {f"Take-Profit: {signal['take_profit']:.2f}" if signal['take_profit'] is not None else ""}
-{f"Total Profit: {signal['total_profit']:.2f}" if signal['action'] in ["buy", "sell"] else ""}
+Total Profit: {signal['total_profit']:.2f}
 {f"Profit: {signal['profit']:.2f}" if signal['action'] == "sell" else ""}
-{f"Total Return Profit: {signal['total_return_profit']:.2f}" if signal['action'] in ["buy2", "sell2"] else ""}
+Total Return Profit: {signal['total_return_profit']:.2f}
 {f"Return Profit: {signal['return_profit']:.2f}" if signal['action'] == "sell2" else ""}
 """
             bot.send_message(chat_id=chat_id, text=message)
@@ -417,7 +415,7 @@ def timeframe_to_seconds(timeframe):
             logger.error(f"Unsupported timeframe unit: {unit}")
             return 60
     except Exception as e:
-        logger.error(f"Error parsing timeframe {timeframe}: {e}")
+        logger.error(f"Error parsing timeframe barras de tendencia {timeframe}: {e}")
         return 60
 
 # Align to next time boundary
@@ -450,7 +448,7 @@ def trading_bot():
     # Fetch initial historical data
     for attempt in range(3):
         try:
-            ohlcv = exchange.fetch_ohlcv(SYMBOL, timeframe=TIMEFRAME, limit=100)
+            ohlcv = exchange.fetch_ohlcv(SYMBOL, timeframe=TIMEFRAME, limit= 100)
             if not ohlcv:
                 logger.warning(f"No historical data for {SYMBOL}. Retrying...")
                 time.sleep(5)
@@ -494,7 +492,7 @@ def trading_bot():
                     if not pd.isna(latest_data['Close']):
                         profit = latest_data['Close'] - buy_price
                         total_profit += profit
-                        signal = create_signal("sell", latest_data['Close'], latest_data, df, profit, total_profit, 0, 0, "Bot stopped due to time limit")
+                        signal = create_signal("sell", latest_data['Close'], latest_data, df, profit, total_profit, 0, total_return_profit, "Bot stopped due to time limit")
                         store_signal(signal)
                         send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
                         logger.info(f"Generated signal on stop: {signal['action']} at {signal['price']}")
@@ -735,10 +733,11 @@ def trading_bot():
 
                 # Use the most recent action for the signal
                 final_action = action2 if action2 != "hold" else action
-                final_profit = return_profit if action2 == "sell2" else profit
+                final_profit = profit
+                final_return_profit = return_profit
                 final_msg = msg
 
-            signal = create_signal(final_action, current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, final_msg)
+            signal = create_signal(final_action, current_price, latest_data, df, final_profit, total_profit, final_return_profit, total_return_profit, final_msg)
             store_signal(signal)
             latest_signal = signal
             logger.debug(f"Updated latest_signal: {signal}")
