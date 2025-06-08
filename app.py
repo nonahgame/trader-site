@@ -1,3 +1,4 @@
+pass
 import os
 import pandas as pd
 import numpy as np
@@ -139,6 +140,7 @@ pause_duration = 0
 pause_start = None
 pause_duration2 = 0
 pause_start2 = None
+last_sell_profit = 0  # Track the profit of the last Sell action
 latest_signal = {
     'time': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     'action': 'hold',
@@ -244,6 +246,22 @@ def get_latest_signal_from_db():
     except Exception as e:
         logger.error(f"Error fetching latest signal from DB: {e}")
         return None
+
+# Fetch the profit of the last sell action
+def get_last_sell_profit():
+    try:
+        if conn is None:
+            logger.error("Cannot fetch last sell profit: Database connection is None")
+            return 0
+        c = conn.cursor()
+        c.execute("SELECT profit FROM trades WHERE action = 'sell' ORDER BY time DESC LIMIT 1")
+        row = c.fetchone()
+        profit = row[0] if row and row[0] is not None else 0
+        logger.debug(f"Fetched last sell profit from DB: {profit}")
+        return profit
+    except Exception as e:
+        logger.error(f"Error fetching last sell profit: {e}")
+        return 0
 
 # Delete Telegram webhook
 def delete_webhook(retries=3, delay=5):
@@ -415,7 +433,7 @@ def timeframe_to_seconds(timeframe):
             logger.error(f"Unsupported timeframe unit: {unit}")
             return 60
     except Exception as e:
-        logger.error(f"Error parsing timeframe barras de tendencia {timeframe}: {e}")
+        logger.error(f"Error parsing timeframe {timeframe}: {e}")
         return 60
 
 # Align to next time boundary
@@ -432,7 +450,7 @@ def align_to_next_boundary(interval_seconds):
 # Trading bot logic
 def trading_bot():
     global bot_active, position, buy_price, total_profit, position2, buy_price2, total_return_profit
-    global pause_duration, pause_start, pause_duration2, pause_start2, latest_signal, conn, last_valid_price, stop_time
+    global pause_duration, pause_start, pause_duration2, pause_start2, last_sell_profit, latest_signal, conn, last_valid_price, stop_time
     if conn is None:
         logger.error("Database connection not initialized. Cannot start trading bot.")
         return
@@ -448,7 +466,7 @@ def trading_bot():
     # Fetch initial historical data
     for attempt in range(3):
         try:
-            ohlcv = exchange.fetch_ohlcv(SYMBOL, timeframe=TIMEFRAME, limit= 100)
+            ohlcv = exchange.fetch_ohlcv(SYMBOL, timeframe=TIMEFRAME, limit=100)
             if not ohlcv:
                 logger.warning(f"No historical data for {SYMBOL}. Retrying...")
                 time.sleep(5)
@@ -467,9 +485,13 @@ def trading_bot():
             logger.error(f"Error fetching historical data (attempt {attempt + 1}/3): {e}")
             if attempt < 2:
                 time.sleep(5)
+                continue
             else:
                 logger.error(f"Failed to fetch historical data for {SYMBOL}.")
                 return
+
+    # Initialize last_sell_profit from database
+    last_sell_profit = get_last_sell_profit()
 
     interval_seconds = INTER_SECONDS
     logger.info(f"Using interval of {interval_seconds} seconds for timeframe {TIMEFRAME}")
@@ -492,12 +514,14 @@ def trading_bot():
                     if not pd.isna(latest_data['Close']):
                         profit = latest_data['Close'] - buy_price
                         total_profit += profit
+                        last_sell_profit = profit  # Update last sell profit
                         signal = create_signal("sell", latest_data['Close'], latest_data, df, profit, total_profit, 0, total_return_profit, "Bot stopped due to time limit")
                         store_signal(signal)
                         send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
                         logger.info(f"Generated signal on stop: {signal['action']} at {signal['price']}")
                         latest_signal = signal
                     position = None
+                    buy_price = None
                 if position2 == "long":
                     latest_data = get_simulated_price()
                     if not pd.isna(latest_data['Close']):
@@ -509,6 +533,7 @@ def trading_bot():
                         logger.info(f"Generated signal on stop: {signal['action']} at {signal['price']}")
                         latest_signal = signal
                     position2 = None
+                    buy_price2 = None
                 logger.info("Bot stopped due to time limit")
             break
 
@@ -527,6 +552,7 @@ def trading_bot():
                     pause_start = None
                     pause_duration = 0
                     position = None
+                    buy_price = None
                     logger.info("Bot resumed after pause")
 
             if pause_start2 and pause_duration2 > 0:
@@ -539,6 +565,7 @@ def trading_bot():
                     pause_start2 = None
                     pause_duration2 = 0
                     position2 = None
+                    buy_price2 = None
                     logger.info("Bot2 resumed after pause")
 
             now = datetime.now()
@@ -569,12 +596,14 @@ def trading_bot():
                                 if bot_active and position == "long":
                                     profit = current_price - buy_price
                                     total_profit += profit
+                                    last_sell_profit = profit  # Update last sell profit
                                     signal = create_signal("sell", current_price, latest_data, df, profit, total_profit, 0, total_return_profit, "Bot stopped via Telegram")
                                     store_signal(signal)
                                     send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
                                     logger.info(f"Generated signal on /stop: {signal['action']} at {signal['price']}")
                                     latest_signal = signal
                                     position = None
+                                    buy_price = None
                                 if bot_active and position2 == "long":
                                     return_profit = current_price - buy_price2
                                     total_return_profit += return_profit
@@ -584,6 +613,7 @@ def trading_bot():
                                     logger.info(f"Generated signal on /stop: {signal['action']} at {signal['price']}")
                                     latest_signal = signal
                                     position2 = None
+                                    buy_price2 = None
                                 bot_active = False
                             bot.send_message(chat_id=command_chat_id, text="Bot stopped.")
                         elif text.startswith('/stop') and text[5:].isdigit():
@@ -597,12 +627,14 @@ def trading_bot():
                                 if position == "long":
                                     profit = current_price - buy_price
                                     total_profit += profit
+                                    last_sell_profit = profit  # Update last sell profit
                                     signal = create_signal("sell", current_price, latest_data, df, profit, total_profit, 0, total_return_profit, "Bot paused via Telegram")
                                     store_signal(signal)
                                     send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
                                     logger.info(f"Generated signal on /stopN: {signal['action']} at {signal['price']}")
                                     latest_signal = signal
                                     position = None
+                                    buy_price = None
                                 if position2 == "long":
                                     return_profit = current_price - buy_price2
                                     total_return_profit += return_profit
@@ -612,6 +644,7 @@ def trading_bot():
                                     logger.info(f"Generated signal on /stopN: {signal['action']} at {signal['price']}")
                                     latest_signal = signal
                                     position2 = None
+                                    buy_price2 = None
                                 bot_active = False
                             bot.send_message(chat_id=command_chat_id, text=f"Bot paused for {pause_duration/60} minutes.")
                         elif text == '/start':
@@ -619,25 +652,46 @@ def trading_bot():
                                 if not bot_active:
                                     bot_active = True
                                     position = None
+                                    buy_price = None
                                     position2 = None
+                                    buy_price2 = None
                                     pause_start = None
                                     pause_duration = 0
                                     pause_start2 = None
                                     pause_duration2 = 0
+                                    last_sell_profit = get_last_sell_profit()  # Reload last sell profit
                                     bot.send_message(chat_id=command_chat_id, text="Bot started.")
                         elif text == '/daily':
                             with bot_lock:
                                 bot_active = True
-                                position = None
-                                buy_price = None
-                                position2 = None
-                                buy_price2 = None
+                                if position == "long":
+                                    profit = current_price - buy_price
+                                    total_profit += profit
+                                    last_sell_profit = profit  # Update last sell profit
+                                    signal = create_signal("sell", current_price, latest_data, df, profit, total_profit, 0, total_return_profit, "Bot restarted via /daily")
+                                    store_signal(signal)
+                                    send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
+                                    logger.info(f"Generated signal on /daily: {signal['action']} at {signal['price']}")
+                                    latest_signal = signal
+                                    position = None
+                                    buy_price = None
+                                if position2 == "long":
+                                    return_profit = current_price - buy_price2
+                                    total_return_profit += return_profit
+                                    signal = create_signal("sell2", current_price, latest_data, df, 0, total_profit, return_profit, total_return_profit, "Bot restarted via /daily")
+                                    store_signal(signal)
+                                    send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
+                                    logger.info(f"Generated signal on /daily: {signal['action']} at {signal['price']}")
+                                    latest_signal = signal
+                                    position2 = None
+                                    buy_price2 = None
                                 pause_start = None
                                 pause_duration = 0
                                 pause_start2 = None
                                 pause_duration2 = 0
                                 start_time = datetime.now()
                                 stop_time = start_time + pd.Timedelta(seconds=STOP_AFTER_SECONDS)
+                                last_sell_profit = get_last_sell_profit()  # Reload last sell profit
                                 bot.send_message(chat_id=command_chat_id, text=f"Bot restarted with stop time: {stop_time.strftime('%Y-%m-%d %H:%M:%S')}")
                         elif text == '/status':
                             status = "active" if bot_active else f"paused for {int(pause_duration - (datetime.now() - pause_start).total_seconds())} seconds" if pause_start else "stopped"
@@ -678,8 +732,9 @@ def trading_bot():
             recommended_action, stop_loss, take_profit = ai_decision(df, position=position, buy_price=buy_price)
             recommended_action2, stop_loss2, take_profit2 = ai_decision(df, position=position2, buy_price=buy_price2)
 
-            # Check if Buy2/Sell2 should be paused based on first Buy/Sell total_profit
-            is_buy2_allowed = total_profit > 0
+            # Check if Buy2/Sell2 should be allowed based on last Sell profit
+            is_buy2_allowed = last_sell_profit > 0
+            logger.debug(f"Buy2 allowed: {is_buy2_allowed}, last_sell_profit: {last_sell_profit}")
 
             action = "hold"
             profit = 0
@@ -687,7 +742,7 @@ def trading_bot():
             msg = f"HOLD {SYMBOL} at {current_price:.2f}"
 
             with bot_lock:
-                # First Buy/Sell logic
+                # First Buy/Sell logic (no pause, follows main strategy)
                 if bot_active and recommended_action == "buy" and position is None:
                     position = "long"
                     buy_price = current_price
@@ -696,7 +751,9 @@ def trading_bot():
                 elif bot_active and recommended_action == "sell" and position == "long":
                     profit = current_price - buy_price
                     total_profit += profit
+                    last_sell_profit = profit  # Update last sell profit
                     position = None
+                    buy_price = None
                     action = "sell"
                     msg = f"SELL {SYMBOL} at {current_price:.2f}, Profit: {profit:.2f}"
                     if stop_loss and current_price <= stop_loss:
@@ -704,7 +761,7 @@ def trading_bot():
                     elif take_profit and current_price >= take_profit:
                         msg += " (Take-Profit)"
 
-                # Second Buy2/Sell2 logic
+                # Second Buy2/Sell2 logic (depends on main strategy and last_sell_profit)
                 action2 = "hold"
                 if bot_active and is_buy2_allowed and recommended_action2 == "buy" and position2 is None:
                     position2 = "long"
@@ -715,6 +772,7 @@ def trading_bot():
                     return_profit = current_price - buy_price2
                     total_return_profit += return_profit
                     position2 = None
+                    buy_price2 = None
                     action2 = "sell2"
                     msg = f"SELL2 {SYMBOL} at {current_price:.2f}, Return Profit: {return_profit:.2f}"
                     if stop_loss2 and current_price <= stop_loss2:
@@ -725,11 +783,12 @@ def trading_bot():
                     return_profit = current_price - buy_price2
                     total_return_profit += return_profit
                     position2 = None
+                    buy_price2 = None
                     action2 = "sell2"
-                    msg = f"SELL2 {SYMBOL} at {current_price:.2f}, Return Profit: {return_profit:.2f} (Paused due to negative first profit)"
+                    msg = f"SELL2 {SYMBOL} at {current_price:.2f}, Return Profit: {return_profit:.2f} (Paused due to non-profitable last sell)"
                 elif not is_buy2_allowed:
                     action2 = "hold"
-                    msg = f"HOLD2 {SYMBOL} at {current_price:.2f} (Paused due to negative first profit)"
+                    msg = f"HOLD2 {SYMBOL} at {current_price:.2f} (Paused due to non-profitable last sell)"
 
                 # Use the most recent action for the signal
                 final_action = action2 if action2 != "hold" else action
