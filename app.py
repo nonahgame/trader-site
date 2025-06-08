@@ -1,3 +1,5 @@
+# Test-net order
+
 import os
 import pandas as pd
 import numpy as np
@@ -41,18 +43,19 @@ app = Flask(__name__)
 # Environment variables
 BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID")
-SYMBOL = os.getenv("SYMBOL", "BTC/USDT")
+SYMBOL = os.getenv("SYMBOL", "BTC/USD")
 TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -2.0))
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 2.0))
 STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 61200))
-INTER_SECONDS = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))
+INTER_SECONDS = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))  # 120 Increased to avoid rate limits
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
-BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "BINANCE_API_KEY")
-BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET", "BINANCE_API_SECRET")
-ORDER_SIZE_USDT = float(os.getenv("ORDER_SIZE_USDT", 14.0))
+KRAKEN_API_KEY = os.getenv("KRAKEN_API_KEY", "KRAKEN_API_KEY")
+KRAKEN_API_SECRET = os.getenv("KRAKEN_API_SECRET", "KRAKEN_API_SECRET")
+ORDER_SIZE_USD = float(os.getenv("ORDER_SIZE_USD", 10.0))  # Minimal for testing
+TEST_MODE = os.getenv("TEST_MODE", "False").lower() == "true"
 
 # GitHub API setup
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
@@ -61,12 +64,11 @@ HEADERS = {
     "Accept": "application/vnd.github.v3+json"
 }
 
-# Binance exchange setup
-exchange = ccxt.binance({
-    'apiKey': BINANCE_API_KEY,
-    'secret': BINANCE_API_SECRET,
+# Kraken exchange setup
+exchange = ccxt.kraken({
+    'apiKey': KRAKEN_API_KEY,
+    'secret': KRAKEN_API_SECRET,
     'enableRateLimit': True,
-    'testnet': False,
 })
 
 def upload_to_github(file_path, file_name):
@@ -228,6 +230,7 @@ def setup_database():
         logger.info(f"Database initialized at {db_path}")
     except Exception as e:
         logger.error(f"Database setup error: {e}", exc_info=True)
+        send_error_alert(f"Database setup failed: {e}")
         conn = None
 
 # Initialize database immediately
@@ -253,6 +256,7 @@ def get_latest_signal_from_db():
         return None
     except Exception as e:
         logger.error(f"Error fetching latest signal from DB: {e}", exc_info=True)
+        send_error_alert(f"Failed to fetch latest signal: {e}")
         return None
 
 # Delete Telegram webhook with retries
@@ -269,17 +273,32 @@ def delete_webhook(retries=3, delay=5):
                 if attempt < retries - 1:
                     time.sleep(delay)
         logger.error(f"Failed to delete webhook after {retries} attempts")
+        send_error_alert("Failed to delete Telegram webhook")
         return False
     except Exception as e:
         logger.error(f"Error initializing bot for webhook deletion: {e}", exc_info=True)
+        send_error_alert(f"Webhook deletion initialization failed: {e}")
         return False
+
+# Safe API call wrapper for rate limit handling
+def safe_api_call(func, *args, **kwargs):
+    try:
+        return func(*args, **kwargs)
+    except ccxt.RateLimitExceeded as e:
+        logger.warning(f"Rate limit exceeded: {e}. Waiting 60 seconds.")
+        time.sleep(60)
+        return func(*args, **kwargs)
+    except Exception as e:
+        logger.error(f"API call error: {e}", exc_info=True)
+        send_error_alert(f"API call failed: {e}")
+        return None
 
 # Fetch price data
 def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, retries=3, delay=5):
     global last_valid_price
     for attempt in range(retries):
         try:
-            ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=5)
+            ohlcv = safe_api_call(exchange.fetch_ohlcv, symbol, timeframe=timeframe, limit=5)
             if not ohlcv:
                 logger.warning(f"No data returned for {symbol}. Retrying...")
                 time.sleep(delay)
@@ -299,6 +318,7 @@ def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, r
             if attempt < retries - 1:
                 time.sleep(delay)
     logger.error(f"Failed to fetch price for {symbol} after {retries} attempts.")
+    send_error_alert(f"Failed to fetch price for {symbol}")
     if last_valid_price is not None:
         logger.info("Using last valid price data as fallback.")
         return last_valid_price
@@ -319,33 +339,69 @@ def add_technical_indicators(df):
         return df
     except Exception as e:
         logger.error(f"Error calculating indicators: {e}", exc_info=True)
+        send_error_alert(f"Technical indicators calculation failed: {e}")
         return df
 
 # Get available balance
 def get_available_balance(asset):
     try:
-        balance = exchange.fetch_balance()
+        balance = safe_api_call(exchange.fetch_balance)
+        if balance is None:
+            logger.error(f"Failed to fetch balance for {asset}")
+            return 0.0
         available = balance[asset]['free']
         logger.debug(f"Available {asset} balance: {available}")
         return available
     except Exception as e:
         logger.error(f"Error fetching balance for {asset}: {e}", exc_info=True)
+        send_error_alert(f"Balance fetch failed for {asset}: {e}")
         return 0.0
 
 # Place market order
 def place_market_order(action, symbol, amount):
     try:
         if action == "buy":
-            order = exchange.create_market_buy_order(symbol, amount)
+            order = safe_api_call(exchange.create_market_buy_order, symbol, amount)
         elif action == "sell":
-            order = exchange.create_market_sell_order(symbol, amount)
+            order = safe_api_call(exchange.create_market_sell_order, symbol, amount)
+        if order is None:
+            logger.error(f"Failed to place {action} order: {symbol}, amount={amount}")
+            return None
         logger.info(f"Placed {action} order: {symbol}, amount={amount}, order_id={order['id']}")
         return order['id']
     except Exception as e:
         logger.error(f"Error placing {action} order: {e}", exc_info=True)
+        send_error_alert(f"Failed to place {action} order: {e}")
         return None
 
-# AI decision logic (corrected)
+# Place simulated order
+def place_simulated_order(action, symbol, amount):
+    try:
+        params = {'validate': True}
+        if action == "buy":
+            order = safe_api_call(exchange.create_market_buy_order, symbol, amount, params)
+        elif action == "sell":
+            order = safe_api_call(exchange.create_market_sell_order, symbol, amount, params)
+        if order is None:
+            logger.error(f"Failed to simulate {action} order: {symbol}, amount={amount}")
+            return None
+        logger.info(f"Simulated {action} order: {symbol}, amount={amount}, response={order}")
+        return order
+    except Exception as e:
+        logger.error(f"Error simulating {action} order: {e}", exc_info=True)
+        send_error_alert(f"Failed to simulate {action} order: {e}")
+        return None
+
+# Send error alert to Telegram
+def send_error_alert(message):
+    try:
+        bot = Bot(token=BOT_TOKEN)
+        bot.send_message(chat_id=CHAT_ID, text=f"CRITICAL ERROR: {message}")
+        logger.info("Error alert sent to Telegram")
+    except Exception as e:
+        logger.error(f"Failed to send error alert: {e}", exc_info=True)
+
+# AI decision logic
 def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAKE_PROFIT_PERCENT, position=None, buy_price=None):
     if df.empty or len(df) < 1:
         logger.warning("DataFrame is empty or too small for decision.")
@@ -390,7 +446,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         logger.debug("Prevented consecutive buy order.")
         action = "hold"
     if action == "sell" and position is None:
-        logger.debug("Prevented sell order without open position.")  # Fixed unterminated string
+        logger.debug("Prevented sell order without open position.")
         action = "hold"
 
     logger.debug(f"AI decision: action={action}, stop_loss={stop_loss}, take_profit={take_profit}")
@@ -432,6 +488,7 @@ KDJ J: {signal['j']:.2f}
             if attempt < retries - 1:
                 time.sleep(delay)
     logger.error(f"Failed to send Telegram message after {retries} attempts")
+    send_error_alert("Failed to send Telegram message")
 
 # Parse timeframe to seconds
 def timeframe_to_seconds(timeframe):
@@ -449,6 +506,7 @@ def timeframe_to_seconds(timeframe):
             return 60
     except Exception as e:
         logger.error(f"Error parsing timeframe {timeframe}: {e}", exc_info=True)
+        send_error_alert(f"Timeframe parsing failed: {e}")
         return 60
 
 # Align to next time boundary
@@ -467,10 +525,12 @@ def trading_bot():
     global bot_active, position, buy_price, total_profit, pause_duration, pause_start, latest_signal, conn, last_valid_price, stop_time, position_amount
     if conn is None:
         logger.error("Database connection not initialized. Cannot start trading bot.")
+        send_error_alert("Database connection not initialized")
         return
 
     if not delete_webhook():
         logger.error("Cannot proceed with polling due to persistent webhook. Exiting trading bot.")
+        send_error_alert("Webhook deletion failed, exiting bot")
         return
 
     bot = Bot(token=BOT_TOKEN)
@@ -480,7 +540,7 @@ def trading_bot():
     # Fetch initial historical data
     for attempt in range(3):
         try:
-            ohlcv = exchange.fetch_ohlcv(SYMBOL, timeframe=TIMEFRAME, limit=100)
+            ohlcv = safe_api_call(exchange.fetch_ohlcv, SYMBOL, timeframe=TIMEFRAME, limit=100)
             if not ohlcv:
                 logger.warning(f"No historical data for {SYMBOL}. Retrying...")
                 time.sleep(5)
@@ -501,6 +561,7 @@ def trading_bot():
                 time.sleep(5)
             else:
                 logger.error(f"Failed to fetch historical data for {SYMBOL}.")
+                send_error_alert(f"Failed to fetch historical data for {SYMBOL}")
                 return
 
     interval_seconds = INTER_SECONDS
@@ -524,7 +585,7 @@ def trading_bot():
                     if not pd.isna(latest_data['Close']):
                         profit = latest_data['Close'] - buy_price
                         total_profit += profit
-                        order_id = place_market_order("sell", SYMBOL, position_amount)
+                        order_id = place_market_order("sell", SYMBOL, position_amount) if not TEST_MODE else place_simulated_order("sell", SYMBOL, position_amount)
                         signal = create_signal("sell", latest_data['Close'], latest_data, df, profit, total_profit, "Bot stopped due to time limit", order_id)
                         store_signal(signal)
                         send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
@@ -533,6 +594,7 @@ def trading_bot():
                     position = None
                     position_amount = None
                 logger.info("Bot stopped due to time limit")
+                send_error_alert("Bot stopped due to time limit")
             break
 
         if not bot_active:
@@ -581,7 +643,7 @@ def trading_bot():
                                 if bot_active and position == "long":
                                     profit = current_price - buy_price
                                     total_profit += profit
-                                    order_id = place_market_order("sell", SYMBOL, position_amount)
+                                    order_id = place_market_order("sell", SYMBOL, position_amount) if not TEST_MODE else place_simulated_order("sell", SYMBOL, position_amount)
                                     signal = create_signal("sell", current_price, latest_data, df, profit, total_profit, "Bot stopped via Telegram", order_id)
                                     store_signal(signal)
                                     send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
@@ -600,7 +662,7 @@ def trading_bot():
                                 if position == "long":
                                     profit = current_price - buy_price
                                     total_profit += profit
-                                    order_id = place_market_order("sell", SYMBOL, position_amount)
+                                    order_id = place_market_order("sell", SYMBOL, position_amount) if not TEST_MODE else place_simulated_order("sell", SYMBOL, position_amount)
                                     signal = create_signal("sell", current_price, latest_data, df, profit, total_profit, "Bot paused via Telegram", order_id)
                                     store_signal(signal)
                                     send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
@@ -648,10 +710,12 @@ def trading_bot():
                         logger.info("Webhook deleted successfully on retry.")
                     else:
                         logger.error("Failed to resolve webhook conflict. Skipping update cycle.")
+                        send_error_alert("Webhook conflict resolution failed")
                         time.sleep(interval_seconds)
                         continue
             except Exception as e:
                 logger.error(f"Unexpected error processing Telegram updates: {e}", exc_info=True)
+                send_error_alert(f"Telegram updates processing failed: {e}")
 
             new_row = pd.DataFrame({
                 'Open': [latest_data['Open']],
@@ -674,28 +738,29 @@ def trading_bot():
             msg = f"HOLD {SYMBOL} at {current_price:.2f}"
             with bot_lock:
                 if bot_active and recommended_action == "buy" and position is None:
-                    usdt_balance = get_available_balance('USDT')
-                    if usdt_balance < ORDER_SIZE_USDT:
-                        logger.error(f"Insufficient USDT balance: {usdt_balance} < {ORDER_SIZE_USDT}")
-                        msg = f"BUY FAILED: Insufficient USDT balance ({usdt_balance})"
+                    usd_balance = get_available_balance('USD')
+                    if usd_balance < ORDER_SIZE_USD:
+                        logger.error(f"Insufficient USD balance: {usd_balance} < {ORDER_SIZE_USD}")
+                        msg = f"BUY FAILED: Insufficient USD balance ({usd_balance})"
+                        send_error_alert(f"Insufficient USD balance: {usd_balance}")
                     else:
-                        amount = ORDER_SIZE_USDT / current_price
-                        order_id = place_market_order("buy", SYMBOL, amount)
+                        amount = ORDER_SIZE_USD / current_price
+                        order_id = place_simulated_order("buy", SYMBOL, amount) if TEST_MODE else place_market_order("buy", SYMBOL, amount)
                         if order_id:
                             position = "long"
                             buy_price = current_price
                             position_amount = amount
                             action = "buy"
-                            msg = f"BUY {SYMBOL} at {current_price:.2f}, Amount: {amount:.6f}"
+                            msg = f"BUY {SYMBOL} at {current_price:.2f}, Amount: {amount:.6f} ({'Simulated' if TEST_MODE else 'Live'})"
                 elif bot_active and recommended_action == "sell" and position == "long":
-                    order_id = place_market_order("sell", SYMBOL, position_amount)
+                    order_id = place_simulated_order("sell", SYMBOL, position_amount) if TEST_MODE else place_market_order("sell", SYMBOL, position_amount)
                     if order_id:
                         profit = current_price - buy_price
                         total_profit += profit
                         position = None
                         position_amount = None
                         action = "sell"
-                        msg = f"SELL {SYMBOL} at {current_price:.2f}, Profit: {profit:.2f}"
+                        msg = f"SELL {SYMBOL} at {current_price:.2f}, Profit: {profit:.2f} ({'Simulated' if TEST_MODE else 'Live'})"
                         if stop_loss and current_price <= stop_loss:
                             msg += " (Stop-Loss)"
                         elif take_profit and current_price >= take_profit:
@@ -721,6 +786,7 @@ def trading_bot():
             time.sleep(seconds_to_next)
         except Exception as e:
             logger.error(f"Error in trading loop: {e}", exc_info=True)
+            send_error_alert(f"Trading loop error: {e}")
             seconds_to_next, _ = align_to_next_boundary(interval_seconds)
             time.sleep(seconds_to_next if seconds_to_next > 1 else interval_seconds)
 
@@ -749,13 +815,14 @@ def create_signal(action, current_price, latest_data, df, profit, total_profit, 
         'diff': latest['diff'] if not pd.isna(latest['diff']) else 0.0,
         'message': msg,
         'timeframe': TIMEFRAME,
-        'order_id': order_id
+        'order_id': str(order_id) if order_id else None
     }
 
 def store_signal(signal):
     try:
         if conn is None:
             logger.error("Cannot store signal: Database connection is None")
+            send_error_alert("Cannot store signal: Database not initialized")
             return
         c = conn.cursor()
         c.execute('''
@@ -778,11 +845,13 @@ def store_signal(signal):
         upload_to_github('r_bot.db', 'r_bot.db')
     except Exception as e:
         logger.error(f"Error storing signal: {e}", exc_info=True)
+        send_error_alert(f"Signal storage failed: {e}")
 
 def get_performance():
     try:
         if conn is None:
             logger.error("Cannot fetch performance: Database connection is None")
+            send_error_alert("Cannot fetch performance: Database not initialized")
             return "Database not initialized."
         c = conn.cursor()
         c.execute("SELECT COUNT(*) FROM trades")
@@ -810,12 +879,14 @@ Total Profit: {total_profit_db:.2f}
         return message
     except Exception as e:
         logger.error(f"Error fetching performance: {e}", exc_info=True)
+        send_error_alert(f"Performance fetch failed: {e}")
         return f"Error fetching performance data: {str(e)}"
 
 def get_trade_counts():
     try:
         if conn is None:
             logger.error("Cannot fetch trade counts: Database connection is None")
+            send_error_alert("Cannot fetch trade counts: Database not initialized")
             return "Database not initialized."
         c = conn.cursor()
         c.execute("SELECT DISTINCT timeframe FROM trades")
@@ -845,6 +916,7 @@ Total Profit: {total_profit_db:.2f}
         return message
     except Exception as e:
         logger.error(f"Error fetching trade counts: {e}", exc_info=True)
+        send_error_alert(f"Trade counts fetch failed: {e}")
         return f"Error fetching trade counts: {str(e)}"
 
 # Flask routes
@@ -855,6 +927,7 @@ def index():
     try:
         if conn is None:
             logger.error("Cannot render index.html: Database connection is None")
+            send_error_alert("Cannot render index: Database not initialized")
             return jsonify({"error": "Database not initialized. Please check server logs."}), 500
         signal_time = datetime.strptime(latest_signal['time'], "%Y-%m-%d %H:%M:%S")
         if (datetime.now() - signal_time).total_seconds() > 65:
@@ -873,6 +946,7 @@ def index():
                              trades=trades, stop_time=stop_time_str, current_time=current_time)
     except Exception as e:
         logger.error(f"Error rendering index.html: {e}", exc_info=True)
+        send_error_alert(f"Index rendering failed: {e}")
         return jsonify({"error": "Failed to render template"}), 500
 
 @app.route('/status')
@@ -889,6 +963,7 @@ def trades():
     try:
         if conn is None:
             logger.error("Cannot fetch trades: Database connection is None")
+            send_error_alert("Cannot fetch trades: Database not initialized")
             return jsonify({"error": "Database not initialized."}), 500
         c = conn.cursor()
         c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 16")
@@ -896,6 +971,7 @@ def trades():
         return jsonify(trades)
     except Exception as e:
         logger.error(f"Error fetching trades: {e}", exc_info=True)
+        send_error_alert(f"Trades fetch failed: {e}")
         return jsonify({"error": "Failed to fetch trades"}), 500
 
 # Cleanup
