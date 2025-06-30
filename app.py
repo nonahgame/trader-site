@@ -50,16 +50,16 @@ werkzeug_logger.setLevel(logging.DEBUG)
 app = Flask(__name__)
 
 # Environment variables
-BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID", "YOUR_CHAT_ID")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID")
 SYMBOL = os.getenv("SYMBOL", "BTC/USD")
 TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -0.15))
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 2.0))
 STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 180000))
 #INTER_SECONDS = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "YOUR_GITHUB_TOKEN")
-GITHUB_REPO = os.getenv("GITHUB_REPO", "YOUR_GITHUB_REPO")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
+GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
 
 # GitHub API setup
