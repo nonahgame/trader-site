@@ -16,16 +16,35 @@ from flask import Flask, render_template, jsonify
 import atexit
 import base64
 
+# Custom formatter for WAT timezone
+class WATFormatter(logging.Formatter):
+    def __init__(self, fmt=None, datefmt=None, tz=pytz.timezone('Africa/Lagos')):
+        super().__init__(fmt, datefmt)
+        self.tz = tz
+
+    def formatTime(self, record, datefmt=None):
+        dt = datetime.fromtimestamp(record.created, self.tz)
+        if datefmt:
+            return dt.strftime(datefmt)
+        return dt.strftime('%Y-%m-%d %H:%M:%S')
+
 # Configure logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.DEBUG,
     handlers=[
-        logging.FileHandler('r_bot.log'),
+        logging.FileHandler('td_sto.log'),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Customize werkzeug logger
+werkzeug_logger = logging.getLogger('werkzeug')
+werkzeug_handler = logging.StreamHandler()
+werkzeug_handler.setFormatter(WATFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
+werkzeug_logger.handlers = [werkzeug_handler, logging.FileHandler('td_sto.log')]
+werkzeug_logger.setLevel(logging.DEBUG)
 
 # Try to import dotenv
 try:
