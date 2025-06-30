@@ -144,26 +144,16 @@ start_time = datetime.now(WAT_TZ)
 stop_time = start_time + timedelta(seconds=STOP_AFTER_SECONDS)
 last_valid_price = None
 
-# Keep-alive mechanism
-def keep_alive():
-    while True:
-        try:
-            requests.get('https://www.google.com')
-            logger.debug("Keep-alive ping sent")
-            time.sleep(300)
-        except Exception as e:
-            logger.error(f"Keep-alive error: {e}")
-            time.sleep(60)
 
 # SQLite database setup
 def setup_database():
     global conn
-    db_path = 'td_sto.db'
+    db_path = 'r_bot.db'
     try:
-        if copy_db_from_google_drive():
-            logger.info(f"Restored database from Google Drive to {db_path}")
+        if download_from_github('r_bot.db', db_path):
+            logger.info(f"Restored database from GitHub to {db_path}")
         else:
-            logger.info(f"Creating new database at {db_path}")
+            logger.info(f"No existing database found. Creating new database at {db_path}")
         conn = sqlite3.connect(db_path, check_same_thread=False)
         c = conn.cursor()
         c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trades';")
@@ -198,9 +188,9 @@ def setup_database():
             ''')
         c.execute("PRAGMA table_info(trades);")
         columns = [col[1] for col in c.fetchall()]
-        for col in ['return_profit', 'total_return_profit', 'diff', 'message', 'timeframe']:
+        for col in ['message', 'timeframe', 'diff', 'return_profit', 'total_return_profit']:
             if col not in columns:
-                c.execute(f"ALTER TABLE trades ADD COLUMN {col} {'REAL' if col in ['return_profit', 'total_return_profit', 'diff'] else 'TEXT'};")
+                c.execute(f'ALTER TABLE trades ADD COLUMN {col} {"TEXT" if col in ["message", "timeframe"] else "REAL"};')
         conn.commit()
         logger.info(f"Database initialized at {db_path}")
     except Exception as e:
@@ -372,7 +362,7 @@ def trading_bot():
     global bot_active, position, buy_price, total_profit, pause_duration, pause_start, latest_signal, conn
     try:
         try:
-            if not mount_google_drive():
+            if not path():
                 logger.warning("Failed to mount Google Drive. Continuing with local database.")
         except NameError:
             logger.warning("mount_google_drive not defined. Continuing with local database.")
@@ -470,7 +460,7 @@ def trading_bot():
                         latest_signal = signal
                     position = None
                 logger.info("Bot stopped due to time limit")
-                copy_db_to_google_drive()
+                copy_db_to_path()
                 break
 
             if not bot_active:
@@ -521,7 +511,7 @@ def trading_bot():
                                         position = None
                                     bot_active = False
                                 bot.send_message(chat_id=command_chat_id, text="Bot stopped.")
-                                copy_db_to_google_drive()
+                                copy_db_to_path()
                             elif text.startswith('/stop') and text[5:].isdigit():
                                 multiplier = int(text[5:])
                                 with bot_lock:
@@ -539,7 +529,7 @@ def trading_bot():
                                         position = None
                                     bot_active = False
                                 bot.send_message(chat_id=command_chat_id, text=f"Bot paused for {pause_duration/60} minutes.")
-                                copy_db_to_google_drive()
+                                copy_db_to_path()
                             elif text == '/start':
                                 with bot_lock:
                                     if not bot_active:
@@ -607,7 +597,7 @@ def trading_bot():
                     threading.Thread(target=send_telegram_message, args=(signal, BOT_TOKEN, CHAT_ID), daemon=True).start()
                 latest_signal = signal
 
-            copy_db_to_google_drive()
+            copy_db_to_path()
             time.sleep(timeframe_seconds)
         except Exception as e:
             logger.error(f"Error in trading loop: {e}")
@@ -794,8 +784,8 @@ def cleanup():
     if conn:
         conn.close()
         logger.info("Database connection closed")
-    copy_db_to_google_drive()
-    logger.info("Final database backup to Google Drive completed")
+    copy_db_to_path()
+    logger.info("Final database backup to Path completed")
 
 atexit.register(cleanup)
 
