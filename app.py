@@ -1,10 +1,10 @@
-# modified one 
 import os
 import pandas as pd
 import numpy as np
 import sqlite3
 import time
 from datetime import datetime, timedelta
+import pytz
 import ccxt
 import pandas_ta as ta
 from telegram import Bot
@@ -12,9 +12,9 @@ import telegram
 import logging
 import threading
 import requests
+import base64
 from flask import Flask, render_template, jsonify
 import atexit
-import base64
 
 # Custom formatter for WAT timezone
 class WATFormatter(logging.Formatter):
@@ -46,14 +46,6 @@ werkzeug_handler.setFormatter(WATFormatter('%(asctime)s - %(name)s - %(levelname
 werkzeug_logger.handlers = [werkzeug_handler, logging.FileHandler('td_sto.log')]
 werkzeug_logger.setLevel(logging.DEBUG)
 
-# Try to import dotenv
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-    logger.debug("Loaded environment variables from .env file")
-except ImportError:
-    logger.warning("python-dotenv not installed. Relying on system environment variables.")
-
 # Flask app setup
 app = Flask(__name__)
 
@@ -65,7 +57,7 @@ TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -0.15))
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 2.0))
 STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 180000))
-INTER_SECONDS = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))
+#INTER_SECONDS = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "YOUR_GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "YOUR_GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
@@ -77,6 +69,34 @@ HEADERS = {
     "Accept": "application/vnd.github.v3+json"
 }
 
+# Database path
+db_path = 'r_bot.db'
+
+# Timezone setup
+WAT_TZ = pytz.timezone('Africa/Lagos')
+
+# Global state
+bot_thread = None
+bot_active = True
+bot_lock = threading.Lock()
+conn = None
+exchange = ccxt.kraken()
+position = None
+buy_price = None
+total_profit = 0
+pause_duration = 0
+pause_start = None
+tracking_enabled = True
+last_sell_profit = 0
+tracking_has_buy = False
+tracking_buy_price = None
+total_return_profit = 0
+latest_signal = None
+start_time = datetime.now(WAT_TZ)
+stop_time = start_time + timedelta(seconds=STOP_AFTER_SECONDS)
+last_valid_price = None
+
+# GitHub database functions
 def upload_to_github(file_path, file_name):
     try:
         if not GITHUB_TOKEN or GITHUB_TOKEN == "YOUR_GITHUB_TOKEN":
@@ -141,38 +161,25 @@ def download_from_github(file_name, destination_path):
         logger.error(f"Error downloading {file_name} from GitHub: {e}", exc_info=True)
         return False
 
-# Global state
-bot_thread = None
-bot_active = True  # Start bot automatically
-bot_lock = threading.Lock()
-conn = None
-exchange = ccxt.kraken()
-position = None
-buy_price = None
-total_profit = 0
-pause_duration = 0
-pause_start = None
-# Second strategy state
-tracking_enabled = True
-last_sell_profit = 0
-tracking_has_buy = False
-tracking_buy_price = None
-total_return_profit = 0
-latest_signal = None
-start_time = datetime.now(WAT_TZ)
-stop_time = start_time + timedelta(seconds=STOP_AFTER_SECONDS)
-last_valid_price = None
-
+# Keep-alive mechanism
+def keep_alive():
+    while True:
+        try:
+            requests.get('https://www.google.com')
+            logger.debug("Keep-alive ping sent")
+            time.sleep(300)
+        except Exception as e:
+            logger.error(f"Keep-alive error: {e}")
+            time.sleep(60)
 
 # SQLite database setup
 def setup_database():
     global conn
-    db_path = 'r_bot.db'
     try:
         if download_from_github('r_bot.db', db_path):
             logger.info(f"Restored database from GitHub to {db_path}")
         else:
-            logger.info(f"No existing database found. Creating new database at {db_path}")
+            logger.info(f"Creating new database at {db_path}")
         conn = sqlite3.connect(db_path, check_same_thread=False)
         c = conn.cursor()
         c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trades';")
@@ -207,9 +214,9 @@ def setup_database():
             ''')
         c.execute("PRAGMA table_info(trades);")
         columns = [col[1] for col in c.fetchall()]
-        for col in ['message', 'timeframe', 'diff', 'return_profit', 'total_return_profit']:
+        for col in ['return_profit', 'total_return_profit', 'diff', 'message', 'timeframe']:
             if col not in columns:
-                c.execute(f'ALTER TABLE trades ADD COLUMN {col} {"TEXT" if col in ["message", "timeframe"] else "REAL"};')
+                c.execute(f"ALTER TABLE trades ADD COLUMN {col} {'REAL' if col in ['return_profit', 'total_return_profit', 'diff'] else 'TEXT'};")
         conn.commit()
         logger.info(f"Database initialized at {db_path}")
     except Exception as e:
@@ -262,7 +269,7 @@ def add_technical_indicators(df):
     except Exception as e:
         logger.error(f"Error calculating indicators: {e}")
         return df
-# Start
+
 # AI decision logic
 def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAKE_PROFIT_PERCENT, position=None, buy_price=None):
     if df.empty or len(df) < 1:
@@ -271,7 +278,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
     latest = df.iloc[-1]
     close_price = latest['Close']
     open_price = latest['Open']
-    kdj_j = latest['j'] if not pd.isna(latest['j']) else 0.0  # Extract KDJ J value, default to 0.0 if NaN
+    kdj_j = latest['j'] if not pd.isna(latest['j']) else 0.0
     stop_loss = None
     take_profit = None
     action = "hold"
@@ -288,12 +295,12 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         elif close_price < open_price:
             logger.info(f"Downward price movement detected: open={open_price:.2f}, close={close_price:.2f}")
             action = "sell"
-        elif kdj_j > 121.00:  # New sell condition: KDJ J overbought
+        elif kdj_j > 121.00:
             logger.info(f"Overbought KDJ J detected: kdj_j={kdj_j:.2f}")
             action = "sell"
 
     if action == "hold" and position is None:
-        if kdj_j < -12.00:  # New buy condition: KDJ J oversold
+        if kdj_j < -12.00:
             logger.info(f"Oversold KDJ J detected: kdj_j={kdj_j:.2f}")
             action = "buy"
 
@@ -307,7 +314,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
     logger.debug(f"AI decision: action={action}, stop_loss={stop_loss}, take_profit={take_profit}, kdj_j={kdj_j:.2f}")
     return action, stop_loss, take_profit
 
-# Second strategy logic (unchanged)
+# Second strategy logic
 def handle_second_strategy(action, current_price, primary_profit):
     global tracking_enabled, last_sell_profit, tracking_has_buy, tracking_buy_price, total_return_profit
     return_profit = 0
@@ -337,10 +344,8 @@ def handle_second_strategy(action, current_price, primary_profit):
             tracking_enabled = False
         msg = " (Paused Sell2)"
     return return_profit, msg
-# End
-# Telegram message sending
 
-#  Start
+# Telegram message sending
 def send_telegram_message(signal, bot_token, chat_id, retries=3, delay=5):
     for attempt in range(retries):
         try:
@@ -375,16 +380,11 @@ KDJ J: {signal['j']:.2f}
             if attempt < retries - 1:
                 time.sleep(delay)
     logger.error(f"Failed to send Telegram message after {retries} attempts")
-# End
+
 # Trading bot logic
 def trading_bot():
     global bot_active, position, buy_price, total_profit, pause_duration, pause_start, latest_signal, conn
     try:
-        try:
-            if not path():
-                logger.warning("Failed to mount Google Drive. Continuing with local database.")
-        except NameError:
-            logger.warning("mount_google_drive not defined. Continuing with local database.")
         setup_database()
         if conn is None:
             logger.error("Database initialization failed. Exiting trading bot.")
@@ -393,7 +393,6 @@ def trading_bot():
         logger.error(f"Unexpected error in trading_bot initialization: {e}")
         return
 
-    # Initialize Telegram bot once
     bot = None
     try:
         bot = Bot(token=BOT_TOKEN)
@@ -406,7 +405,6 @@ def trading_bot():
     last_update_id = 0
     df = None
 
-    # Generate an initial "hold" signal
     initial_signal = {
         'time': datetime.now(WAT_TZ).strftime("%Y-%m-%d %H:%M:%S"),
         'action': 'hold',
@@ -434,9 +432,9 @@ def trading_bot():
     }
     latest_signal = initial_signal
     store_signal(initial_signal)
+    upload_to_github(db_path, 'r_bot.db')
     logger.info("Initial hold signal generated")
 
-    # Fetch initial historical data
     for attempt in range(3):
         try:
             ohlcv = exchange.fetch_ohlcv(SYMBOL, timeframe=TIMEFRAME, limit=100)
@@ -479,7 +477,7 @@ def trading_bot():
                         latest_signal = signal
                     position = None
                 logger.info("Bot stopped due to time limit")
-                copy_db_to_path()
+                upload_to_github(db_path, 'r_bot.db')
                 break
 
             if not bot_active:
@@ -530,7 +528,7 @@ def trading_bot():
                                         position = None
                                     bot_active = False
                                 bot.send_message(chat_id=command_chat_id, text="Bot stopped.")
-                                copy_db_to_path()
+                                upload_to_github(db_path, 'r_bot.db')
                             elif text.startswith('/stop') and text[5:].isdigit():
                                 multiplier = int(text[5:])
                                 with bot_lock:
@@ -548,7 +546,7 @@ def trading_bot():
                                         position = None
                                     bot_active = False
                                 bot.send_message(chat_id=command_chat_id, text=f"Bot paused for {pause_duration/60} minutes.")
-                                copy_db_to_path()
+                                upload_to_github(db_path, 'r_bot.db')
                             elif text == '/start':
                                 with bot_lock:
                                     if not bot_active:
@@ -616,7 +614,7 @@ def trading_bot():
                     threading.Thread(target=send_telegram_message, args=(signal, BOT_TOKEN, CHAT_ID), daemon=True).start()
                 latest_signal = signal
 
-            copy_db_to_path()
+            upload_to_github(db_path, 'r_bot.db')
             time.sleep(timeframe_seconds)
         except Exception as e:
             logger.error(f"Error in trading loop: {e}")
@@ -803,8 +801,8 @@ def cleanup():
     if conn:
         conn.close()
         logger.info("Database connection closed")
-    copy_db_to_path()
-    logger.info("Final database backup to Path completed")
+        upload_to_github(db_path, 'r_bot.db')
+        logger.info("Final database backup to GitHub completed")
 
 atexit.register(cleanup)
 
@@ -814,7 +812,12 @@ if bot_thread is None or not bot_thread.is_alive():
     bot_thread.start()
     logger.info("Trading bot started automatically")
 
-# Run Flask app in Colab for testing
-if __name__ == '__main__':
-    start_bot_thread()
-    app.run(debug=False, host='0.0.0.0', port=5000)
+# Start keep-alive thread
+keep_alive_thread = threading.Thread(target=keep_alive, daemon=True)
+keep_alive_thread.start()
+logger.info("Keep-alive thread started")
+
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 5000))
+    logger.info(f"Starting Flask server on port {port}")
+    app.run(host='0.0.0.0', port=port, debug=False)
