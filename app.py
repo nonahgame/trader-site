@@ -52,15 +52,14 @@ app = Flask(__name__)
 # Environment variables
 BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID")
-SYMBOL = os.getenv("SYMBOL", "BTC/USD")
+SYMBOL = os.getenv("SYMBOL", "BTC/USDT")
 TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -0.15))
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 2.0))
 STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 180000))
-#INTER_SECONDS = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
-GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
-GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "YOUR_GITHUB_TOKEN")
+GITHUB_REPO = os.getenv("GITHUB_REPO", "YOUR_GITHUB_REPO")
+GITHUB_PATH = os.getenv("GITHUB_PATH", "r_bot.db")  # Simplified to root level to avoid directory issues
 
 # GitHub API setup
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
@@ -175,73 +174,95 @@ def keep_alive():
 # SQLite database setup
 def setup_database():
     global conn
-    try:
-        logger.info(f"Attempting to download database from GitHub: {GITHUB_API_URL}")
-        if download_from_github('r_bot.db', db_path):
-            logger.info(f"Downloaded database from GitHub to {db_path}")
-            # Verify the downloaded file is a valid SQLite database
-            try:
-                conn = sqlite3.connect(db_path, check_same_thread=False)
-                c = conn.cursor()
-                c.execute("SELECT name FROM sqlite_master WHERE type='table';")
-                logger.info(f"Database at {db_path} is valid SQLite database")
-                conn.close()
-            except sqlite3.DatabaseError as e:
-                logger.error(f"Downloaded database is corrupted or invalid: {e}")
-                os.remove(db_path)  # Remove invalid file
-                logger.info(f"Removed invalid database file. Creating new database at {db_path}")
-        else:
-            logger.info(f"No existing database found or download failed. Creating new database at {db_path}")
+    for attempt in range(3):  # Retry up to 3 times
+        try:
+            logger.info(f"Database setup attempt {attempt + 1}/3")
+            # Check if local database file exists and is valid
+            if os.path.exists(db_path):
+                try:
+                    conn = sqlite3.connect(db_path, check_same_thread=False)
+                    c = conn.cursor()
+                    c.execute("SELECT name FROM sqlite_master WHERE type='table';")
+                    logger.info(f"Existing database found at {db_path}, tables: {c.fetchall()}")
+                    conn.close()
+                except sqlite3.DatabaseError as e:
+                    logger.error(f"Existing database at {db_path} is corrupted: {e}")
+                    os.remove(db_path)
+                    logger.info(f"Removed corrupted database file at {db_path}")
 
-        # Create or connect to database
-        conn = sqlite3.connect(db_path, check_same_thread=False)
-        c = conn.cursor()
-        c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trades';")
-        if not c.fetchone():
-            c.execute('''
-                CREATE TABLE trades (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    time TEXT,
-                    action TEXT,
-                    symbol TEXT,
-                    price REAL,
-                    open_price REAL,
-                    close_price REAL,
-                    volume REAL,
-                    percent_change REAL,
-                    stop_loss REAL,
-                    take_profit REAL,
-                    profit REAL,
-                    total_profit REAL,
-                    return_profit REAL,
-                    total_return_profit REAL,
-                    ema1 REAL,
-                    ema2 REAL,
-                    rsi REAL,
-                    k REAL,
-                    d REAL,
-                    j REAL,
-                    diff REAL,
-                    message TEXT,
-                    timeframe TEXT
-                )
-            ''')
-            logger.info("Created new trades table")
-        c.execute("PRAGMA table_info(trades);")
-        columns = [col[1] for col in c.fetchall()]
-        for col in ['return_profit', 'total_return_profit', 'diff', 'message', 'timeframe']:
-            if col not in columns:
-                c.execute(f"ALTER TABLE trades ADD COLUMN {col} {'REAL' if col in ['return_profit', 'total_return_profit', 'diff'] else 'TEXT'};")
-                logger.info(f"Added column {col} to trades table")
-        conn.commit()
-        logger.info(f"Database initialized at {db_path}")
-        upload_to_github(db_path, 'r_bot.db')  # Upload after successful initialization
-    except sqlite3.Error as e:
-        logger.error(f"SQLite error during database setup: {e}", exc_info=True)
-        conn = None
-    except Exception as e:
-        logger.error(f"Unexpected error during database setup: {e}", exc_info=True)
-        conn = None
+            # Attempt to download from GitHub
+            logger.info(f"Attempting to download database from GitHub: {GITHUB_API_URL}")
+            if download_from_github('r_bot.db', db_path):
+                logger.info(f"Downloaded database from GitHub to {db_path}")
+                # Verify downloaded file
+                try:
+                    conn = sqlite3.connect(db_path, check_same_thread=False)
+                    c = conn.cursor()
+                    c.execute("SELECT name FROM sqlite_master WHERE type='table';")
+                    tables = c.fetchall()
+                    logger.info(f"Downloaded database is valid, tables: {tables}")
+                    conn.close()
+                except sqlite3.DatabaseError as e:
+                    logger.error(f"Downloaded database is corrupted: {e}")
+                    os.remove(db_path)
+                    logger.info(f"Removed invalid downloaded database file at {db_path}")
+
+            # Connect to or create database
+            logger.info(f"Connecting to database at {db_path}")
+            conn = sqlite3.connect(db_path, check_same_thread=False)
+            c = conn.cursor()
+            c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trades';")
+            if not c.fetchone():
+                c.execute('''
+                    CREATE TABLE trades (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        time TEXT,
+                        action TEXT,
+                        symbol TEXT,
+                        price REAL,
+                        open_price REAL,
+                        close_price REAL,
+                        volume REAL,
+                        percent_change REAL,
+                        stop_loss REAL,
+                        take_profit REAL,
+                        profit REAL,
+                        total_profit REAL,
+                        return_profit REAL,
+                        total_return_profit REAL,
+                        ema1 REAL,
+                        ema2 REAL,
+                        rsi REAL,
+                        k REAL,
+                        d REAL,
+                        j REAL,
+                        diff REAL,
+                        message TEXT,
+                        timeframe TEXT
+                    )
+                ''')
+                logger.info("Created new trades table")
+            c.execute("PRAGMA table_info(trades);")
+            columns = [col[1] for col in c.fetchall()]
+            for col in ['return_profit', 'total_return_profit', 'diff', 'message', 'timeframe']:
+                if col not in columns:
+                    c.execute(f"ALTER TABLE trades ADD COLUMN {col} {'REAL' if col in ['return_profit', 'total_return_profit', 'diff'] else 'TEXT'};")
+                    logger.info(f"Added column {col} to trades table")
+            conn.commit()
+            logger.info(f"Database initialized successfully at {db_path}, size: {os.path.getsize(db_path)} bytes")
+            upload_to_github(db_path, 'r_bot.db')  # Upload after successful initialization
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"SQLite error during database setup (attempt {attempt + 1}/3): {e}", exc_info=True)
+            conn = None
+            time.sleep(2)
+        except Exception as e:
+            logger.error(f"Unexpected error during database setup (attempt {attempt + 1}/3): {e}", exc_info=True)
+            conn = None
+            time.sleep(2)
+    logger.error("Failed to initialize database after 3 attempts")
+    conn = None
+    return False
 
 # Fetch price data
 def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, retries=3, delay=5):
@@ -405,8 +426,7 @@ KDJ J: {signal['j']:.2f}
 def trading_bot():
     global bot_active, position, buy_price, total_profit, pause_duration, pause_start, latest_signal, conn
     try:
-        setup_database()
-        if conn is None:
+        if not setup_database():
             logger.error("Database initialization failed. Exiting trading bot.")
             return
     except Exception as e:
@@ -634,7 +654,8 @@ def trading_bot():
                     threading.Thread(target=send_telegram_message, args=(signal, BOT_TOKEN, CHAT_ID), daemon=True).start()
                 latest_signal = signal
 
-            upload_to_github(db_path, 'r_bot.db')
+            if bot_active and action != "hold":  # Upload only on buy/sell to reduce API calls
+                upload_to_github(db_path, 'r_bot.db')
             time.sleep(timeframe_seconds)
         except Exception as e:
             logger.error(f"Error in trading loop: {e}")
