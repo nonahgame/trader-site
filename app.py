@@ -50,17 +50,16 @@ werkzeug_logger.setLevel(logging.DEBUG)
 app = Flask(__name__)
 
 # Environment variables
-BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID")
-SYMBOL = os.getenv("SYMBOL", "BTC/USD")
-TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "your-telegram-bot-token")
+CHAT_ID = os.getenv("CHAT_ID", "your-telegram-chat-id")
+SYMBOL = os.getenv("SYMBOL", "BTC/USDT")
+TIMEFRAME = os.getenv("TIMEFRAME", "1m")
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -0.15))
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 2.0))
 STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 180000))
-#INTER_SECONDS = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
-GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
-GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "YOUR_GITHUB_TOKEN")
+GITHUB_REPO = os.getenv("GITHUB_REPO", "YOUR_GITHUB_REPO")
+GITHUB_PATH = os.getenv("GITHUB_PATH", "data/r_bot.db")
 
 # GitHub API setup
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
@@ -176,10 +175,9 @@ def keep_alive():
 def setup_database():
     global conn
     try:
-        if download_from_github('r_bot.db', db_path):
-            logger.info(f"Restored database from GitHub to {db_path}")
-        else:
-            logger.info(f"Creating new database at {db_path}")
+        logger.info(f"Attempting to download database from GitHub: {GITHUB_API_URL}")
+        if not download_from_github('r_bot.db', db_path):
+            logger.info(f"No existing database found or download failed. Creating new database at {db_path}")
         conn = sqlite3.connect(db_path, check_same_thread=False)
         c = conn.cursor()
         c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trades';")
@@ -212,15 +210,18 @@ def setup_database():
                     timeframe TEXT
                 )
             ''')
+            logger.info("Created new trades table")
         c.execute("PRAGMA table_info(trades);")
         columns = [col[1] for col in c.fetchall()]
         for col in ['return_profit', 'total_return_profit', 'diff', 'message', 'timeframe']:
             if col not in columns:
                 c.execute(f"ALTER TABLE trades ADD COLUMN {col} {'REAL' if col in ['return_profit', 'total_return_profit', 'diff'] else 'TEXT'};")
+                logger.info(f"Added column {col} to trades table")
         conn.commit()
         logger.info(f"Database initialized at {db_path}")
+        upload_to_github(db_path, 'r_bot.db')  # Upload new or restored database to GitHub
     except Exception as e:
-        logger.error(f"Database setup error: {e}")
+        logger.error(f"Database setup error: {e}", exc_info=True)
         conn = None
 
 # Fetch price data
