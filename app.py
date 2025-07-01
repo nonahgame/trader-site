@@ -50,16 +50,16 @@ werkzeug_logger.setLevel(logging.DEBUG)
 app = Flask(__name__)
 
 # Environment variables
-BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "your-telegram-bot-token")
+CHAT_ID = os.getenv("CHAT_ID", "your-telegram-chat-id")
 SYMBOL = os.getenv("SYMBOL", "BTC/USDT")
-TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
+TIMEFRAME = os.getenv("TIMEFRAME", "1m")
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -0.15))
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 2.0))
 STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 180000))
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "YOUR_GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "YOUR_GITHUB_REPO")
-GITHUB_PATH = os.getenv("GITHUB_PATH", "r_bot.db")  # Simplified to root level to avoid directory issues
+GITHUB_PATH = os.getenv("GITHUB_PATH", "r_bot.db")  # Root level to avoid directory issues
 
 # GitHub API setup
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
@@ -264,6 +264,11 @@ def setup_database():
     conn = None
     return False
 
+# Initialize database in main thread
+logger.info("Initializing database in main thread")
+if not setup_database():
+    logger.error("Failed to initialize database in main thread. Flask routes may fail.")
+
 # Fetch price data
 def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, retries=3, delay=5):
     global last_valid_price
@@ -425,14 +430,6 @@ KDJ J: {signal['j']:.2f}
 # Trading bot logic
 def trading_bot():
     global bot_active, position, buy_price, total_profit, pause_duration, pause_start, latest_signal, conn
-    try:
-        if not setup_database():
-            logger.error("Database initialization failed. Exiting trading bot.")
-            return
-    except Exception as e:
-        logger.error(f"Unexpected error in trading_bot initialization: {e}")
-        return
-
     bot = None
     try:
         bot = Bot(token=BOT_TOKEN)
@@ -654,7 +651,7 @@ def trading_bot():
                     threading.Thread(target=send_telegram_message, args=(signal, BOT_TOKEN, CHAT_ID), daemon=True).start()
                 latest_signal = signal
 
-            if bot_active and action != "hold":  # Upload only on buy/sell to reduce API calls
+            if bot_active and action != "hold":  # Upload only on buy/sell
                 upload_to_github(db_path, 'r_bot.db')
             time.sleep(timeframe_seconds)
         except Exception as e:
@@ -691,10 +688,13 @@ def create_signal(action, current_price, latest_data, df, profit, total_profit, 
     }
 
 def store_signal(signal):
+    global conn
     try:
         if conn is None:
-            logger.error("Cannot store signal: Database connection is None")
-            return
+            logger.warning("Database connection is None. Attempting to reinitialize.")
+            if not setup_database():
+                logger.error("Failed to reinitialize database for signal storage")
+                return
         c = conn.cursor()
         c.execute('''
             INSERT INTO trades (
@@ -716,12 +716,16 @@ def store_signal(signal):
         logger.debug("Signal stored successfully")
     except Exception as e:
         logger.error(f"Error storing signal: {e}")
+        conn = None  # Reset conn to trigger reinitialization
 
 def get_performance():
+    global conn
     try:
         if conn is None:
-            logger.error("Cannot fetch performance: Database connection is None")
-            return "Database not initialized. Please try again later."
+            logger.warning("Database connection is None. Attempting to reinitialize.")
+            if not setup_database():
+                logger.error("Failed to reinitialize database for performance")
+                return "Database not initialized. Please try again later."
         c = conn.cursor()
         c.execute("SELECT COUNT(*) FROM trades")
         trade_count = c.fetchone()[0]
@@ -750,13 +754,17 @@ Total Return Profit: {total_return_profit_db:.2f}
         return message
     except Exception as e:
         logger.error(f"Error fetching performance: {e}")
+        conn = None
         return f"Error fetching performance data: {str(e)}"
 
 def get_trade_counts():
+    global conn
     try:
         if conn is None:
-            logger.error("Cannot fetch trade counts: Database connection is None")
-            return "Database not initialized. Please try again later."
+            logger.warning("Database connection is None. Attempting to reinitialize.")
+            if not setup_database():
+                logger.error("Failed to reinitialize database for trade counts")
+                return "Database not initialized. Please try again later."
         c = conn.cursor()
         c.execute("SELECT DISTINCT timeframe FROM trades")
         timeframes = [row[0] for row in c.fetchall()]
@@ -787,29 +795,35 @@ Total Return Profit: {total_return_profit_db:.2f}
         return message
     except Exception as e:
         logger.error(f"Error fetching trade counts: {e}")
+        conn = None
         return f"Error fetching trade counts: {str(e)}"
 
 # Flask routes
 @app.route('/')
 def index():
-    global latest_signal, stop_time
+    global conn, latest_signal, stop_time
     status = "active" if bot_active else "stopped"
     try:
-        stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S")
-        current_time = datetime.now(WAT_TZ).strftime("%Y-%m-%d %H:%M:%S")
         if conn is None:
-            logger.warning("Database not initialized. Rendering fallback page.")
-            return render_template('index.html', signal=None, status=status, timeframe=TIMEFRAME,
-                                 trades=[], stop_time=stop_time_str, current_time=current_time)
+            logger.warning("Database connection is None in index route. Attempting to reinitialize.")
+            if not setup_database():
+                logger.error("Failed to reinitialize database for index route")
+                stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S")
+                current_time = datetime.now(WAT_TZ).strftime("%Y-%m-%d %H:%M:%S")
+                return render_template('index.html', signal=None, status=status, timeframe=TIMEFRAME,
+                                     trades=[], stop_time=stop_time_str, current_time=current_time)
         c = conn.cursor()
         c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 16")
         trades = [dict(zip([col[0] for col in c.description], row)) for row in c.fetchall()]
+        stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S")
+        current_time = datetime.now(WAT_TZ).strftime("%Y-%m-%d %H:%M:%S")
         signal = latest_signal if latest_signal else None
         logger.info(f"Rendering index.html: status={status}, timeframe={TIMEFRAME}, trades={len(trades)}, signal_exists={signal is not None}")
         return render_template('index.html', signal=signal, status=status, timeframe=TIMEFRAME,
                              trades=trades, stop_time=stop_time_str, current_time=current_time)
     except Exception as e:
         logger.error(f"Error rendering index.html: {e}")
+        conn = None
         return "<h1>Error</h1><p>Failed to load page. Please try again later.</p>", 500
 
 @app.route('/status')
@@ -823,10 +837,13 @@ def performance():
 
 @app.route('/trades')
 def trades():
+    global conn
     try:
         if conn is None:
-            logger.error("Cannot fetch trades: Database connection is None")
-            return jsonify({"error": "Database not initialized. Please try again later."}), 503
+            logger.warning("Database connection is None in trades route. Attempting to reinitialize.")
+            if not setup_database():
+                logger.error("Failed to reinitialize database for trades route")
+                return jsonify({"error": "Database not initialized. Please try again later."}), 503
         c = conn.cursor()
         c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 16")
         trades = [dict(zip([col[0] for col in c.description], row)) for row in c.fetchall()]
@@ -834,6 +851,7 @@ def trades():
         return jsonify(trades)
     except Exception as e:
         logger.error(f"Error fetching trades: {e}")
+        conn = None
         return jsonify({"error": f"Failed to fetch trades: {str(e)}"}), 500
 
 # Cleanup
