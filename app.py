@@ -50,16 +50,16 @@ werkzeug_logger.setLevel(logging.DEBUG)
 app = Flask(__name__)
 
 # Environment variables
-BOT_TOKEN = os.getenv("BOT_TOKEN", "your-telegram-bot-token")
-CHAT_ID = os.getenv("CHAT_ID", "your-telegram-chat-id")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID")
 SYMBOL = os.getenv("SYMBOL", "BTC/USDT")
-TIMEFRAME = os.getenv("TIMEFRAME", "1m")
+TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -0.15))
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 2.0))
 STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 180000))
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "YOUR_GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "YOUR_GITHUB_REPO")
-GITHUB_PATH = os.getenv("GITHUB_PATH", "r_bot.db")
+GITHUB_PATH = os.getenv("GITHUB_PATH", "r_bot.db")  # Simplified to root level to avoid directory issues
 
 # GitHub API setup
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
@@ -78,7 +78,6 @@ WAT_TZ = pytz.timezone('Africa/Lagos')
 bot_thread = None
 bot_active = True
 bot_lock = threading.Lock()
-db_lock = threading.Lock()
 conn = None
 exchange = ccxt.kraken()
 position = None
@@ -91,6 +90,7 @@ last_sell_profit = 0
 tracking_has_buy = False
 tracking_buy_price = None
 total_return_profit = 0
+latest_signal = None
 start_time = datetime.now(WAT_TZ)
 stop_time = start_time + timedelta(seconds=STOP_AFTER_SECONDS)
 last_valid_price = None
@@ -174,97 +174,95 @@ def keep_alive():
 # SQLite database setup
 def setup_database():
     global conn
-    with db_lock:
-        for attempt in range(3):
-            try:
-                logger.info(f"Database setup attempt {attempt + 1}/3")
-                if os.path.exists(db_path):
-                    try:
-                        test_conn = sqlite3.connect(db_path, check_same_thread=False)
-                        c = test_conn.cursor()
-                        c.execute("SELECT name FROM sqlite_master WHERE type='table';")
-                        logger.info(f"Existing database found at {db_path}, tables: {c.fetchall()}")
-                        test_conn.close()
-                    except sqlite3.DatabaseError as e:
-                        logger.error(f"Existing database at {db_path} is corrupted: {e}")
-                        os.remove(db_path)
-                        logger.info(f"Removed corrupted database file at {db_path}")
+    for attempt in range(3):  # Retry up to 3 times
+        try:
+            logger.info(f"Database setup attempt {attempt + 1}/3")
+            # Check if local database file exists and is valid
+            if os.path.exists(db_path):
+                try:
+                    conn = sqlite3.connect(db_path, check_same_thread=False)
+                    c = conn.cursor()
+                    c.execute("SELECT name FROM sqlite_master WHERE type='table';")
+                    logger.info(f"Existing database found at {db_path}, tables: {c.fetchall()}")
+                    conn.close()
+                except sqlite3.DatabaseError as e:
+                    logger.error(f"Existing database at {db_path} is corrupted: {e}")
+                    os.remove(db_path)
+                    logger.info(f"Removed corrupted database file at {db_path}")
 
-                logger.info(f"Attempting to download database from GitHub: {GITHUB_API_URL}")
-                if download_from_github('r_bot.db', db_path):
-                    logger.info(f"Downloaded database from GitHub to {db_path}")
-                    try:
-                        test_conn = sqlite3.connect(db_path, check_same_thread=False)
-                        c = test_conn.cursor()
-                        c.execute("SELECT name FROM sqlite_master WHERE type='table';")
-                        tables = c.fetchall()
-                        logger.info(f"Downloaded database is valid, tables: {tables}")
-                        test_conn.close()
-                    except sqlite3.DatabaseError as e:
-                        logger.error(f"Downloaded database is corrupted: {e}")
-                        os.remove(db_path)
-                        logger.info(f"Removed invalid downloaded database file at {db_path}")
+            # Attempt to download from GitHub
+            logger.info(f"Attempting to download database from GitHub: {GITHUB_API_URL}")
+            if download_from_github('r_bot.db', db_path):
+                logger.info(f"Downloaded database from GitHub to {db_path}")
+                # Verify downloaded file
+                try:
+                    conn = sqlite3.connect(db_path, check_same_thread=False)
+                    c = conn.cursor()
+                    c.execute("SELECT name FROM sqlite_master WHERE type='table';")
+                    tables = c.fetchall()
+                    logger.info(f"Downloaded database is valid, tables: {tables}")
+                    conn.close()
+                except sqlite3.DatabaseError as e:
+                    logger.error(f"Downloaded database is corrupted: {e}")
+                    os.remove(db_path)
+                    logger.info(f"Removed invalid downloaded database file at {db_path}")
 
-                logger.info(f"Connecting to database at {db_path}")
-                conn = sqlite3.connect(db_path, check_same_thread=False)
-                c = conn.cursor()
-                c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trades';")
-                if not c.fetchone():
-                    c.execute('''
-                        CREATE TABLE trades (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            time TEXT,
-                            action TEXT,
-                            symbol TEXT,
-                            price REAL,
-                            open_price REAL,
-                            close_price REAL,
-                            volume REAL,
-                            percent_change REAL,
-                            stop_loss REAL,
-                            take_profit REAL,
-                            profit REAL,
-                            total_profit REAL,
-                            return_profit REAL,
-                            total_return_profit REAL,
-                            ema1 REAL,
-                            ema2 REAL,
-                            rsi REAL,
-                            k REAL,
-                            d REAL,
-                            j REAL,
-                            diff REAL,
-                            message TEXT,
-                            timeframe TEXT
-                        )
-                    ''')
-                    logger.info("Created new trades table")
-                c.execute("PRAGMA table_info(trades);")
-                columns = [col[1] for col in c.fetchall()]
-                for col in ['return_profit', 'total_return_profit', 'diff', 'message', 'timeframe']:
-                    if col not in columns:
-                        c.execute(f"ALTER TABLE trades ADD COLUMN {col} {'REAL' if col in ['return_profit', 'total_return_profit', 'diff'] else 'TEXT'};")
-                        logger.info(f"Added column {col} to trades table")
-                conn.commit()
-                logger.info(f"Database initialized successfully at {db_path}, size: {os.path.getsize(db_path)} bytes")
-                upload_to_github(db_path, 'r_bot.db')
-                return True
-            except sqlite3.Error as e:
-                logger.error(f"SQLite error during database setup (attempt {attempt + 1}/3): {e}", exc_info=True)
-                conn = None
-                time.sleep(2)
-            except Exception as e:
-                logger.error(f"Unexpected error during database setup (attempt {attempt + 1}/3): {e}", exc_info=True)
-                conn = None
-                time.sleep(2)
-        logger.error("Failed to initialize database after 3 attempts")
-        conn = None
-        return False
-
-# Initialize database in main thread
-logger.info("Initializing database in main thread")
-if not setup_database():
-    logger.error("Failed to initialize database in main thread. Flask routes may fail.")
+            # Connect to or create database
+            logger.info(f"Connecting to database at {db_path}")
+            conn = sqlite3.connect(db_path, check_same_thread=False)
+            c = conn.cursor()
+            c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trades';")
+            if not c.fetchone():
+                c.execute('''
+                    CREATE TABLE trades (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        time TEXT,
+                        action TEXT,
+                        symbol TEXT,
+                        price REAL,
+                        open_price REAL,
+                        close_price REAL,
+                        volume REAL,
+                        percent_change REAL,
+                        stop_loss REAL,
+                        take_profit REAL,
+                        profit REAL,
+                        total_profit REAL,
+                        return_profit REAL,
+                        total_return_profit REAL,
+                        ema1 REAL,
+                        ema2 REAL,
+                        rsi REAL,
+                        k REAL,
+                        d REAL,
+                        j REAL,
+                        diff REAL,
+                        message TEXT,
+                        timeframe TEXT
+                    )
+                ''')
+                logger.info("Created new trades table")
+            c.execute("PRAGMA table_info(trades);")
+            columns = [col[1] for col in c.fetchall()]
+            for col in ['return_profit', 'total_return_profit', 'diff', 'message', 'timeframe']:
+                if col not in columns:
+                    c.execute(f"ALTER TABLE trades ADD COLUMN {col} {'REAL' if col in ['return_profit', 'total_return_profit', 'diff'] else 'TEXT'};")
+                    logger.info(f"Added column {col} to trades table")
+            conn.commit()
+            logger.info(f"Database initialized successfully at {db_path}, size: {os.path.getsize(db_path)} bytes")
+            upload_to_github(db_path, 'r_bot.db')  # Upload after successful initialization
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"SQLite error during database setup (attempt {attempt + 1}/3): {e}", exc_info=True)
+            conn = None
+            time.sleep(2)
+        except Exception as e:
+            logger.error(f"Unexpected error during database setup (attempt {attempt + 1}/3): {e}", exc_info=True)
+            conn = None
+            time.sleep(2)
+    logger.error("Failed to initialize database after 3 attempts")
+    conn = None
+    return False
 
 # Fetch price data
 def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, retries=3, delay=5):
@@ -426,7 +424,15 @@ KDJ J: {signal['j']:.2f}
 
 # Trading bot logic
 def trading_bot():
-    global bot_active, position, buy_price, total_profit, pause_duration, pause_start, conn
+    global bot_active, position, buy_price, total_profit, pause_duration, pause_start, latest_signal, conn
+    try:
+        if not setup_database():
+            logger.error("Database initialization failed. Exiting trading bot.")
+            return
+    except Exception as e:
+        logger.error(f"Unexpected error in trading_bot initialization: {e}")
+        return
+
     bot = None
     try:
         bot = Bot(token=BOT_TOKEN)
@@ -464,6 +470,7 @@ def trading_bot():
         'message': f"Initializing bot for {SYMBOL}",
         'timeframe': TIMEFRAME
     }
+    latest_signal = initial_signal
     store_signal(initial_signal)
     upload_to_github(db_path, 'r_bot.db')
     logger.info("Initial hold signal generated")
@@ -507,6 +514,7 @@ def trading_bot():
                         store_signal(signal)
                         if bot:
                             send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
+                        latest_signal = signal
                     position = None
                 logger.info("Bot stopped due to time limit")
                 upload_to_github(db_path, 'r_bot.db')
@@ -556,6 +564,7 @@ def trading_bot():
                                         store_signal(signal)
                                         if bot:
                                             send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
+                                        latest_signal = signal
                                         position = None
                                     bot_active = False
                                 bot.send_message(chat_id=command_chat_id, text="Bot stopped.")
@@ -573,6 +582,7 @@ def trading_bot():
                                         store_signal(signal)
                                         if bot:
                                             send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
+                                        latest_signal = signal
                                         position = None
                                     bot_active = False
                                 bot.send_message(chat_id=command_chat_id, text=f"Bot paused for {pause_duration/60} minutes.")
@@ -640,11 +650,11 @@ def trading_bot():
 
                 signal = create_signal(action, current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, msg)
                 store_signal(signal)
-                logger.debug(f"Generated signal: action={signal['action']}, time={signal['time']}, price={signal['price']:.2f}")
                 if bot_active and action != "hold" and bot:
                     threading.Thread(target=send_telegram_message, args=(signal, BOT_TOKEN, CHAT_ID), daemon=True).start()
+                latest_signal = signal
 
-            if bot_active and action != "hold":
+            if bot_active and action != "hold":  # Upload only on buy/sell to reduce API calls
                 upload_to_github(db_path, 'r_bot.db')
             time.sleep(timeframe_seconds)
         except Exception as e:
@@ -681,64 +691,55 @@ def create_signal(action, current_price, latest_data, df, profit, total_profit, 
     }
 
 def store_signal(signal):
-    global conn
-    with db_lock:
-        try:
-            if conn is None:
-                logger.warning("Database connection is None. Attempting to reinitialize.")
-                if not setup_database():
-                    logger.error("Failed to reinitialize database for signal storage")
-                    return
-            c = conn.cursor()
-            c.execute('''
-                INSERT INTO trades (
-                    time, action, symbol, price, open_price, close_price, volume,
-                    percent_change, stop_loss, take_profit, profit, total_profit,
-                    return_profit, total_return_profit, ema1, ema2, rsi, k, d, j, diff, message, timeframe
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                signal['time'], signal['action'], signal['symbol'], signal['price'],
-                signal['open_price'], signal['close_price'], signal['volume'],
-                signal['percent_change'], signal['stop_loss'], signal['take_profit'],
-                signal['profit'], signal['total_profit'],
-                signal['return_profit'], signal['total_return_profit'],
-                signal['ema1'], signal['ema2'], signal['rsi'],
-                signal['k'], signal['d'], signal['j'], signal['diff'],
-                signal['message'], signal['timeframe']
-            ))
-            conn.commit()
-            logger.debug(f"Signal stored successfully: action={signal['action']}, time={signal['time']}")
-        except Exception as e:
-            logger.error(f"Error storing signal: {e}")
-            conn = None
+    try:
+        if conn is None:
+            logger.error("Cannot store signal: Database connection is None")
+            return
+        c = conn.cursor()
+        c.execute('''
+            INSERT INTO trades (
+                time, action, symbol, price, open_price, close_price, volume,
+                percent_change, stop_loss, take_profit, profit, total_profit,
+                return_profit, total_return_profit, ema1, ema2, rsi, k, d, j, diff, message, timeframe
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            signal['time'], signal['action'], signal['symbol'], signal['price'],
+            signal['open_price'], signal['close_price'], signal['volume'],
+            signal['percent_change'], signal['stop_loss'], signal['take_profit'],
+            signal['profit'], signal['total_profit'],
+            signal['return_profit'], signal['total_return_profit'],
+            signal['ema1'], signal['ema2'], signal['rsi'],
+            signal['k'], signal['d'], signal['j'], signal['diff'],
+            signal['message'], signal['timeframe']
+        ))
+        conn.commit()
+        logger.debug("Signal stored successfully")
+    except Exception as e:
+        logger.error(f"Error storing signal: {e}")
 
 def get_performance():
-    global conn
-    with db_lock:
-        try:
-            if conn is None:
-                logger.warning("Database connection is None. Attempting to reinitialize.")
-                if not setup_database():
-                    logger.error("Failed to reinitialize database for performance")
-                    return "Database not initialized. Please try again later."
-            c = conn.cursor()
-            c.execute("SELECT COUNT(*) FROM trades")
-            trade_count = c.fetchone()[0]
-            if trade_count == 0:
-                return "No trades available for performance analysis."
-            c.execute("SELECT DISTINCT timeframe FROM trades")
-            timeframes = [row[0] for row in c.fetchall()]
-            message = "Performance Statistics by Timeframe:\n"
-            for tf in timeframes:
-                c.execute("SELECT MIN(time), MAX(time), SUM(profit), SUM(return_profit), COUNT(*) FROM trades WHERE action='sell' AND profit IS NOT NULL AND timeframe=?", (tf,))
-                result = c.fetchone()
-                min_time, max_time, total_profit_db, total_return_profit_db, win_trades = result if result else (None, None, None, None, 0)
-                c.execute("SELECT COUNT(*) FROM trades WHERE action='sell' AND profit < 0 AND timeframe=?", (tf,))
-                loss_trades = c.fetchone()[0]
-                duration = (datetime.strptime(max_time, "%Y-%m-%d %H:%M:%S") - datetime.strptime(min_time, "%Y-%m-%d %H:%M:%S")).total_seconds() / 3600 if min_time and max_time else "N/A"
-                total_profit_db = total_profit_db if total_profit_db is not None else 0
-                total_return_profit_db = total_return_profit_db if total_return_profit_db is not None else 0
-                message += f"""
+    try:
+        if conn is None:
+            logger.error("Cannot fetch performance: Database connection is None")
+            return "Database not initialized. Please try again later."
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM trades")
+        trade_count = c.fetchone()[0]
+        if trade_count == 0:
+            return "No trades available for performance analysis."
+        c.execute("SELECT DISTINCT timeframe FROM trades")
+        timeframes = [row[0] for row in c.fetchall()]
+        message = "Performance Statistics by Timeframe:\n"
+        for tf in timeframes:
+            c.execute("SELECT MIN(time), MAX(time), SUM(profit), SUM(return_profit), COUNT(*) FROM trades WHERE action='sell' AND profit IS NOT NULL AND timeframe=?", (tf,))
+            result = c.fetchone()
+            min_time, max_time, total_profit_db, total_return_profit_db, win_trades = result if result else (None, None, None, None, 0)
+            c.execute("SELECT COUNT(*) FROM trades WHERE action='sell' AND profit < 0 AND timeframe=?", (tf,))
+            loss_trades = c.fetchone()[0]
+            duration = (datetime.strptime(max_time, "%Y-%m-%d %H:%M:%S") - datetime.strptime(min_time, "%Y-%m-%d %H:%M:%S")).total_seconds() / 3600 if min_time and max_time else "N/A"
+            total_profit_db = total_profit_db if total_profit_db is not None else 0
+            total_return_profit_db = total_return_profit_db if total_return_profit_db is not None else 0
+            message += f"""
 Timeframe: {tf}
 Duration (hours): {duration if duration != "N/A" else duration}
 Win Trades: {win_trades}
@@ -746,39 +747,34 @@ Loss Trades: {loss_trades}
 Total Profit: {total_profit_db:.2f}
 Total Return Profit: {total_return_profit_db:.2f}
 """
-            return message
-        except Exception as e:
-            logger.error(f"Error fetching performance: {e}")
-            conn = None
-            return f"Error fetching performance data: {str(e)}"
+        return message
+    except Exception as e:
+        logger.error(f"Error fetching performance: {e}")
+        return f"Error fetching performance data: {str(e)}"
 
 def get_trade_counts():
-    global conn
-    with db_lock:
-        try:
-            if conn is None:
-                logger.warning("Database connection is None. Attempting to reinitialize.")
-                if not setup_database():
-                    logger.error("Failed to reinitialize database for trade counts")
-                    return "Database not initialized. Please try again later."
-            c = conn.cursor()
-            c.execute("SELECT DISTINCT timeframe FROM trades")
-            timeframes = [row[0] for row in c.fetchall()]
-            message = "Trade Counts by Timeframe:\n"
-            for tf in timeframes:
-                c.execute("SELECT COUNT(*), SUM(profit), SUM(return_profit) FROM trades WHERE timeframe=?", (tf,))
-                total_trades, total_profit_db, total_return_profit_db = c.fetchone()
-                c.execute("SELECT COUNT(*) FROM trades WHERE action='buy' AND timeframe=?", (tf,))
-                buy_trades = c.fetchone()[0]
-                c.execute("SELECT COUNT(*) FROM trades WHERE action='sell' AND timeframe=?", (tf,))
-                sell_trades = c.fetchone()[0]
-                c.execute("SELECT COUNT(*) FROM trades WHERE action='sell' AND profit > 0 AND timeframe=?", (tf,))
-                win_trades = c.fetchone()[0]
-                c.execute("SELECT COUNT(*) FROM trades WHERE action='sell' AND profit < 0 AND timeframe=?", (tf,))
-                loss_trades = c.fetchone()[0]
-                total_profit_db = total_profit_db if total_profit_db is not None else 0
-                total_return_profit_db = total_return_profit_db if total_return_profit_db is not None else 0
-                message += f"""
+    try:
+        if conn is None:
+            logger.error("Cannot fetch trade counts: Database connection is None")
+            return "Database not initialized. Please try again later."
+        c = conn.cursor()
+        c.execute("SELECT DISTINCT timeframe FROM trades")
+        timeframes = [row[0] for row in c.fetchall()]
+        message = "Trade Counts by Timeframe:\n"
+        for tf in timeframes:
+            c.execute("SELECT COUNT(*), SUM(profit), SUM(return_profit) FROM trades WHERE timeframe=?", (tf,))
+            total_trades, total_profit_db, total_return_profit_db = c.fetchone()
+            c.execute("SELECT COUNT(*) FROM trades WHERE action='buy' AND timeframe=?", (tf,))
+            buy_trades = c.fetchone()[0]
+            c.execute("SELECT COUNT(*) FROM trades WHERE action='sell' AND timeframe=?", (tf,))
+            sell_trades = c.fetchone()[0]
+            c.execute("SELECT COUNT(*) FROM trades WHERE action='sell' AND profit > 0 AND timeframe=?", (tf,))
+            win_trades = c.fetchone()[0]
+            c.execute("SELECT COUNT(*) FROM trades WHERE action='sell' AND profit < 0 AND timeframe=?", (tf,))
+            loss_trades = c.fetchone()[0]
+            total_profit_db = total_profit_db if total_profit_db is not None else 0
+            total_return_profit_db = total_return_profit_db if total_return_profit_db is not None else 0
+            message += f"""
 Timeframe: {tf}
 Total Trades: {total_trades}
 Buy Trades: {buy_trades}
@@ -788,42 +784,33 @@ Loss Trades: {loss_trades}
 Total Profit: {total_profit_db:.2f}
 Total Return Profit: {total_return_profit_db:.2f}
 """
-            return message
-        except Exception as e:
-            logger.error(f"Error fetching trade counts: {e}")
-            conn = None
-            return f"Error fetching trade counts: {str(e)}"
+        return message
+    except Exception as e:
+        logger.error(f"Error fetching trade counts: {e}")
+        return f"Error fetching trade counts: {str(e)}"
 
 # Flask routes
 @app.route('/')
 def index():
-    global conn, stop_time
+    global latest_signal, stop_time
     status = "active" if bot_active else "stopped"
-    with db_lock:
-        try:
-            if conn is None:
-                logger.warning("Database connection is None in index route. Attempting to reinitialize.")
-                if not setup_database():
-                    logger.error("Failed to reinitialize database for index route")
-                    stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S")
-                    current_time = datetime.now(WAT_TZ).strftime("%Y-%m-%d %H:%M:%S")
-                    return render_template('index.html', signal=None, status=status, timeframe=TIMEFRAME,
-                                         trades=[], stop_time=stop_time_str, current_time=current_time)
-            c = conn.cursor()
-            c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 16")
-            trades = [dict(zip([col[0] for col in c.description], row)) for row in c.fetchall()]
-            c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 1")
-            row = c.fetchone()
-            signal = dict(zip([col[0] for col in c.description], row)) if row else None
-            stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S")
-            current_time = datetime.now(WAT_TZ).strftime("%Y-%m-%d %H:%M:%S")
-            logger.info(f"Rendering index.html: status={status}, timeframe={TIMEFRAME}, trades={len(trades)}, signal_exists={signal is not None}, signal_time={signal['time'] if signal else 'None'}")
-            return render_template('index.html', signal=signal, status=status, timeframe=TIMEFRAME,
-                                 trades=trades, stop_time=stop_time_str, current_time=current_time)
-        except Exception as e:
-            logger.error(f"Error rendering index.html: {e}")
-            conn = None
-            return "<h1>Error</h1><p>Failed to load page. Please try again later.</p>", 500
+    try:
+        stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S")
+        current_time = datetime.now(WAT_TZ).strftime("%Y-%m-%d %H:%M:%S")
+        if conn is None:
+            logger.warning("Database not initialized. Rendering fallback page.")
+            return render_template('index.html', signal=None, status=status, timeframe=TIMEFRAME,
+                                 trades=[], stop_time=stop_time_str, current_time=current_time)
+        c = conn.cursor()
+        c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 16")
+        trades = [dict(zip([col[0] for col in c.description], row)) for row in c.fetchall()]
+        signal = latest_signal if latest_signal else None
+        logger.info(f"Rendering index.html: status={status}, timeframe={TIMEFRAME}, trades={len(trades)}, signal_exists={signal is not None}")
+        return render_template('index.html', signal=signal, status=status, timeframe=TIMEFRAME,
+                             trades=trades, stop_time=stop_time_str, current_time=current_time)
+    except Exception as e:
+        logger.error(f"Error rendering index.html: {e}")
+        return "<h1>Error</h1><p>Failed to load page. Please try again later.</p>", 500
 
 @app.route('/status')
 def status():
@@ -836,23 +823,18 @@ def performance():
 
 @app.route('/trades')
 def trades():
-    global conn
-    with db_lock:
-        try:
-            if conn is None:
-                logger.warning("Database connection is None in trades route. Attempting to reinitialize.")
-                if not setup_database():
-                    logger.error("Failed to reinitialize database for trades route")
-                    return jsonify({"error": "Database not initialized. Please try again later."}), 503
-            c = conn.cursor()
-            c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 16")
-            trades = [dict(zip([col[0] for col in c.description], row)) for row in c.fetchall()]
-            logger.debug(f"Fetched {len(trades)} trades for /trades endpoint")
-            return jsonify(trades)
-        except Exception as e:
-            logger.error(f"Error fetching trades: {e}")
-            conn = None
-            return jsonify({"error": f"Failed to fetch trades: {str(e)}"}), 500
+    try:
+        if conn is None:
+            logger.error("Cannot fetch trades: Database connection is None")
+            return jsonify({"error": "Database not initialized. Please try again later."}), 503
+        c = conn.cursor()
+        c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 16")
+        trades = [dict(zip([col[0] for col in c.description], row)) for row in c.fetchall()]
+        logger.debug(f"Fetched {len(trades)} trades for /trades endpoint")
+        return jsonify(trades)
+    except Exception as e:
+        logger.error(f"Error fetching trades: {e}")
+        return jsonify({"error": f"Failed to fetch trades: {str(e)}"}), 500
 
 # Cleanup
 def cleanup():
@@ -878,4 +860,5 @@ logger.info("Keep-alive thread started")
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    logger.info(f"Starting Flask server on port {port}")
+    app.run(host='0.0.0.0', port=port, debug=False)
