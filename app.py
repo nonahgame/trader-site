@@ -50,16 +50,17 @@ werkzeug_logger.setLevel(logging.DEBUG)
 app = Flask(__name__)
 
 # Environment variables
-BOT_TOKEN = os.getenv("BOT_TOKEN", "your-telegram-bot-token")
-CHAT_ID = os.getenv("CHAT_ID", "your-telegram-chat-id")
-SYMBOL = os.getenv("SYMBOL", "BTC/USDT")
-TIMEFRAME = os.getenv("TIMEFRAME", "1m")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID")
+SYMBOL = os.getenv("SYMBOL", "BTC/USD")
+TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -0.15))
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 2.0))
 STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 180000))
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "YOUR_GITHUB_TOKEN")
-GITHUB_REPO = os.getenv("GITHUB_REPO", "YOUR_GITHUB_REPO")
-GITHUB_PATH = os.getenv("GITHUB_PATH", "r_bot.db")  # Root level to avoid directory issues
+#INTER_SECONDS = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
+GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
+GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
 
 # GitHub API setup
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
@@ -174,100 +175,73 @@ def keep_alive():
 # SQLite database setup
 def setup_database():
     global conn
-    for attempt in range(3):  # Retry up to 3 times
-        try:
-            logger.info(f"Database setup attempt {attempt + 1}/3")
-            # Check if local database file exists and is valid
-            if os.path.exists(db_path):
-                try:
-                    conn = sqlite3.connect(db_path, check_same_thread=False)
-                    c = conn.cursor()
-                    c.execute("SELECT name FROM sqlite_master WHERE type='table';")
-                    logger.info(f"Existing database found at {db_path}, tables: {c.fetchall()}")
-                    conn.close()
-                except sqlite3.DatabaseError as e:
-                    logger.error(f"Existing database at {db_path} is corrupted: {e}")
-                    os.remove(db_path)
-                    logger.info(f"Removed corrupted database file at {db_path}")
+    try:
+        logger.info(f"Attempting to download database from GitHub: {GITHUB_API_URL}")
+        if download_from_github('r_bot.db', db_path):
+            logger.info(f"Downloaded database from GitHub to {db_path}")
+            # Verify the downloaded file is a valid SQLite database
+            try:
+                conn = sqlite3.connect(db_path, check_same_thread=False)
+                c = conn.cursor()
+                c.execute("SELECT name FROM sqlite_master WHERE type='table';")
+                logger.info(f"Database at {db_path} is valid SQLite database")
+                conn.close()
+            except sqlite3.DatabaseError as e:
+                logger.error(f"Downloaded database is corrupted or invalid: {e}")
+                os.remove(db_path)  # Remove invalid file
+                logger.info(f"Removed invalid database file. Creating new database at {db_path}")
+        else:
+            logger.info(f"No existing database found or download failed. Creating new database at {db_path}")
 
-            # Attempt to download from GitHub
-            logger.info(f"Attempting to download database from GitHub: {GITHUB_API_URL}")
-            if download_from_github('r_bot.db', db_path):
-                logger.info(f"Downloaded database from GitHub to {db_path}")
-                # Verify downloaded file
-                try:
-                    conn = sqlite3.connect(db_path, check_same_thread=False)
-                    c = conn.cursor()
-                    c.execute("SELECT name FROM sqlite_master WHERE type='table';")
-                    tables = c.fetchall()
-                    logger.info(f"Downloaded database is valid, tables: {tables}")
-                    conn.close()
-                except sqlite3.DatabaseError as e:
-                    logger.error(f"Downloaded database is corrupted: {e}")
-                    os.remove(db_path)
-                    logger.info(f"Removed invalid downloaded database file at {db_path}")
-
-            # Connect to or create database
-            logger.info(f"Connecting to database at {db_path}")
-            conn = sqlite3.connect(db_path, check_same_thread=False)
-            c = conn.cursor()
-            c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trades';")
-            if not c.fetchone():
-                c.execute('''
-                    CREATE TABLE trades (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        time TEXT,
-                        action TEXT,
-                        symbol TEXT,
-                        price REAL,
-                        open_price REAL,
-                        close_price REAL,
-                        volume REAL,
-                        percent_change REAL,
-                        stop_loss REAL,
-                        take_profit REAL,
-                        profit REAL,
-                        total_profit REAL,
-                        return_profit REAL,
-                        total_return_profit REAL,
-                        ema1 REAL,
-                        ema2 REAL,
-                        rsi REAL,
-                        k REAL,
-                        d REAL,
-                        j REAL,
-                        diff REAL,
-                        message TEXT,
-                        timeframe TEXT
-                    )
-                ''')
-                logger.info("Created new trades table")
-            c.execute("PRAGMA table_info(trades);")
-            columns = [col[1] for col in c.fetchall()]
-            for col in ['return_profit', 'total_return_profit', 'diff', 'message', 'timeframe']:
-                if col not in columns:
-                    c.execute(f"ALTER TABLE trades ADD COLUMN {col} {'REAL' if col in ['return_profit', 'total_return_profit', 'diff'] else 'TEXT'};")
-                    logger.info(f"Added column {col} to trades table")
-            conn.commit()
-            logger.info(f"Database initialized successfully at {db_path}, size: {os.path.getsize(db_path)} bytes")
-            upload_to_github(db_path, 'r_bot.db')  # Upload after successful initialization
-            return True
-        except sqlite3.Error as e:
-            logger.error(f"SQLite error during database setup (attempt {attempt + 1}/3): {e}", exc_info=True)
-            conn = None
-            time.sleep(2)
-        except Exception as e:
-            logger.error(f"Unexpected error during database setup (attempt {attempt + 1}/3): {e}", exc_info=True)
-            conn = None
-            time.sleep(2)
-    logger.error("Failed to initialize database after 3 attempts")
-    conn = None
-    return False
-
-# Initialize database in main thread
-logger.info("Initializing database in main thread")
-if not setup_database():
-    logger.error("Failed to initialize database in main thread. Flask routes may fail.")
+        # Create or connect to database
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        c = conn.cursor()
+        c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trades';")
+        if not c.fetchone():
+            c.execute('''
+                CREATE TABLE trades (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    time TEXT,
+                    action TEXT,
+                    symbol TEXT,
+                    price REAL,
+                    open_price REAL,
+                    close_price REAL,
+                    volume REAL,
+                    percent_change REAL,
+                    stop_loss REAL,
+                    take_profit REAL,
+                    profit REAL,
+                    total_profit REAL,
+                    return_profit REAL,
+                    total_return_profit REAL,
+                    ema1 REAL,
+                    ema2 REAL,
+                    rsi REAL,
+                    k REAL,
+                    d REAL,
+                    j REAL,
+                    diff REAL,
+                    message TEXT,
+                    timeframe TEXT
+                )
+            ''')
+            logger.info("Created new trades table")
+        c.execute("PRAGMA table_info(trades);")
+        columns = [col[1] for col in c.fetchall()]
+        for col in ['return_profit', 'total_return_profit', 'diff', 'message', 'timeframe']:
+            if col not in columns:
+                c.execute(f"ALTER TABLE trades ADD COLUMN {col} {'REAL' if col in ['return_profit', 'total_return_profit', 'diff'] else 'TEXT'};")
+                logger.info(f"Added column {col} to trades table")
+        conn.commit()
+        logger.info(f"Database initialized at {db_path}")
+        upload_to_github(db_path, 'r_bot.db')  # Upload after successful initialization
+    except sqlite3.Error as e:
+        logger.error(f"SQLite error during database setup: {e}", exc_info=True)
+        conn = None
+    except Exception as e:
+        logger.error(f"Unexpected error during database setup: {e}", exc_info=True)
+        conn = None
 
 # Fetch price data
 def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, retries=3, delay=5):
@@ -430,6 +404,15 @@ KDJ J: {signal['j']:.2f}
 # Trading bot logic
 def trading_bot():
     global bot_active, position, buy_price, total_profit, pause_duration, pause_start, latest_signal, conn
+    try:
+        setup_database()
+        if conn is None:
+            logger.error("Database initialization failed. Exiting trading bot.")
+            return
+    except Exception as e:
+        logger.error(f"Unexpected error in trading_bot initialization: {e}")
+        return
+
     bot = None
     try:
         bot = Bot(token=BOT_TOKEN)
@@ -651,8 +634,7 @@ def trading_bot():
                     threading.Thread(target=send_telegram_message, args=(signal, BOT_TOKEN, CHAT_ID), daemon=True).start()
                 latest_signal = signal
 
-            if bot_active and action != "hold":  # Upload only on buy/sell
-                upload_to_github(db_path, 'r_bot.db')
+            upload_to_github(db_path, 'r_bot.db')
             time.sleep(timeframe_seconds)
         except Exception as e:
             logger.error(f"Error in trading loop: {e}")
@@ -688,13 +670,10 @@ def create_signal(action, current_price, latest_data, df, profit, total_profit, 
     }
 
 def store_signal(signal):
-    global conn
     try:
         if conn is None:
-            logger.warning("Database connection is None. Attempting to reinitialize.")
-            if not setup_database():
-                logger.error("Failed to reinitialize database for signal storage")
-                return
+            logger.error("Cannot store signal: Database connection is None")
+            return
         c = conn.cursor()
         c.execute('''
             INSERT INTO trades (
@@ -716,16 +695,12 @@ def store_signal(signal):
         logger.debug("Signal stored successfully")
     except Exception as e:
         logger.error(f"Error storing signal: {e}")
-        conn = None  # Reset conn to trigger reinitialization
 
 def get_performance():
-    global conn
     try:
         if conn is None:
-            logger.warning("Database connection is None. Attempting to reinitialize.")
-            if not setup_database():
-                logger.error("Failed to reinitialize database for performance")
-                return "Database not initialized. Please try again later."
+            logger.error("Cannot fetch performance: Database connection is None")
+            return "Database not initialized. Please try again later."
         c = conn.cursor()
         c.execute("SELECT COUNT(*) FROM trades")
         trade_count = c.fetchone()[0]
@@ -754,17 +729,13 @@ Total Return Profit: {total_return_profit_db:.2f}
         return message
     except Exception as e:
         logger.error(f"Error fetching performance: {e}")
-        conn = None
         return f"Error fetching performance data: {str(e)}"
 
 def get_trade_counts():
-    global conn
     try:
         if conn is None:
-            logger.warning("Database connection is None. Attempting to reinitialize.")
-            if not setup_database():
-                logger.error("Failed to reinitialize database for trade counts")
-                return "Database not initialized. Please try again later."
+            logger.error("Cannot fetch trade counts: Database connection is None")
+            return "Database not initialized. Please try again later."
         c = conn.cursor()
         c.execute("SELECT DISTINCT timeframe FROM trades")
         timeframes = [row[0] for row in c.fetchall()]
@@ -795,35 +766,29 @@ Total Return Profit: {total_return_profit_db:.2f}
         return message
     except Exception as e:
         logger.error(f"Error fetching trade counts: {e}")
-        conn = None
         return f"Error fetching trade counts: {str(e)}"
 
 # Flask routes
 @app.route('/')
 def index():
-    global conn, latest_signal, stop_time
+    global latest_signal, stop_time
     status = "active" if bot_active else "stopped"
     try:
+        stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S")
+        current_time = datetime.now(WAT_TZ).strftime("%Y-%m-%d %H:%M:%S")
         if conn is None:
-            logger.warning("Database connection is None in index route. Attempting to reinitialize.")
-            if not setup_database():
-                logger.error("Failed to reinitialize database for index route")
-                stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S")
-                current_time = datetime.now(WAT_TZ).strftime("%Y-%m-%d %H:%M:%S")
-                return render_template('index.html', signal=None, status=status, timeframe=TIMEFRAME,
-                                     trades=[], stop_time=stop_time_str, current_time=current_time)
+            logger.warning("Database not initialized. Rendering fallback page.")
+            return render_template('index.html', signal=None, status=status, timeframe=TIMEFRAME,
+                                 trades=[], stop_time=stop_time_str, current_time=current_time)
         c = conn.cursor()
         c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 16")
         trades = [dict(zip([col[0] for col in c.description], row)) for row in c.fetchall()]
-        stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S")
-        current_time = datetime.now(WAT_TZ).strftime("%Y-%m-%d %H:%M:%S")
         signal = latest_signal if latest_signal else None
         logger.info(f"Rendering index.html: status={status}, timeframe={TIMEFRAME}, trades={len(trades)}, signal_exists={signal is not None}")
         return render_template('index.html', signal=signal, status=status, timeframe=TIMEFRAME,
                              trades=trades, stop_time=stop_time_str, current_time=current_time)
     except Exception as e:
         logger.error(f"Error rendering index.html: {e}")
-        conn = None
         return "<h1>Error</h1><p>Failed to load page. Please try again later.</p>", 500
 
 @app.route('/status')
@@ -837,13 +802,10 @@ def performance():
 
 @app.route('/trades')
 def trades():
-    global conn
     try:
         if conn is None:
-            logger.warning("Database connection is None in trades route. Attempting to reinitialize.")
-            if not setup_database():
-                logger.error("Failed to reinitialize database for trades route")
-                return jsonify({"error": "Database not initialized. Please try again later."}), 503
+            logger.error("Cannot fetch trades: Database connection is None")
+            return jsonify({"error": "Database not initialized. Please try again later."}), 503
         c = conn.cursor()
         c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 16")
         trades = [dict(zip([col[0] for col in c.description], row)) for row in c.fetchall()]
@@ -851,7 +813,6 @@ def trades():
         return jsonify(trades)
     except Exception as e:
         logger.error(f"Error fetching trades: {e}")
-        conn = None
         return jsonify({"error": f"Failed to fetch trades: {str(e)}"}), 500
 
 # Cleanup
