@@ -50,16 +50,17 @@ werkzeug_logger.setLevel(logging.DEBUG)
 app = Flask(__name__)
 
 # Environment variables
-BOT_TOKEN = os.getenv("BOT_TOKEN", "your-telegram-bot-token")
-CHAT_ID = os.getenv("CHAT_ID", "your-telegram-chat-id")
-SYMBOL = os.getenv("SYMBOL", "BTC/USDT")
-TIMEFRAME = os.getenv("TIMEFRAME", "1m")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID")
+SYMBOL = os.getenv("SYMBOL", "BTC/USD")
+TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -0.15))
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 2.0))
 STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 180000))
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "YOUR_GITHUB_TOKEN")
-GITHUB_REPO = os.getenv("GITHUB_REPO", "YOUR_GITHUB_REPO")
-GITHUB_PATH = os.getenv("GITHUB_PATH", "data/r_bot.db")
+#INTER_SECONDS = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
+GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
+GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
 
 # GitHub API setup
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
@@ -176,8 +177,23 @@ def setup_database():
     global conn
     try:
         logger.info(f"Attempting to download database from GitHub: {GITHUB_API_URL}")
-        if not download_from_github('r_bot.db', db_path):
+        if download_from_github('r_bot.db', db_path):
+            logger.info(f"Downloaded database from GitHub to {db_path}")
+            # Verify the downloaded file is a valid SQLite database
+            try:
+                conn = sqlite3.connect(db_path, check_same_thread=False)
+                c = conn.cursor()
+                c.execute("SELECT name FROM sqlite_master WHERE type='table';")
+                logger.info(f"Database at {db_path} is valid SQLite database")
+                conn.close()
+            except sqlite3.DatabaseError as e:
+                logger.error(f"Downloaded database is corrupted or invalid: {e}")
+                os.remove(db_path)  # Remove invalid file
+                logger.info(f"Removed invalid database file. Creating new database at {db_path}")
+        else:
             logger.info(f"No existing database found or download failed. Creating new database at {db_path}")
+
+        # Create or connect to database
         conn = sqlite3.connect(db_path, check_same_thread=False)
         c = conn.cursor()
         c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trades';")
@@ -219,9 +235,12 @@ def setup_database():
                 logger.info(f"Added column {col} to trades table")
         conn.commit()
         logger.info(f"Database initialized at {db_path}")
-        upload_to_github(db_path, 'r_bot.db')  # Upload new or restored database to GitHub
+        upload_to_github(db_path, 'r_bot.db')  # Upload after successful initialization
+    except sqlite3.Error as e:
+        logger.error(f"SQLite error during database setup: {e}", exc_info=True)
+        conn = None
     except Exception as e:
-        logger.error(f"Database setup error: {e}", exc_info=True)
+        logger.error(f"Unexpected error during database setup: {e}", exc_info=True)
         conn = None
 
 # Fetch price data
