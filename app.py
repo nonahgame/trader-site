@@ -315,6 +315,7 @@ def add_technical_indicators(df):
         return df
 
 # AI decision logic
+# AI decision logic
 def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAKE_PROFIT_PERCENT, position=None, buy_price=None):
     if df.empty or len(df) < 1:
         logger.warning("DataFrame is empty or too small for decision.")
@@ -329,7 +330,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
 
     if position == "long" and buy_price is not None:
         stop_loss = buy_price * (1 + stop_loss_percent / 100)
-        take_profit = buy_price * (1 + take_profit_percent / 100)
+        take_profit = buy_price * (3 + take_profit_percent / 100)
         if close_price <= stop_loss:
             logger.info("Stop-loss triggered.")
             action = "sell"
@@ -339,13 +340,13 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         elif close_price < open_price:
             logger.info(f"Downward price movement detected: open={open_price:.2f}, close={close_price:.2f}")
             action = "sell"
-        elif kdj_j > 121.00:
+        elif kdj_j > 123.00:  # Updated from 121.00 to 123.00
             logger.info(f"Overbought KDJ J detected: kdj_j={kdj_j:.2f}")
             action = "sell"
 
     if action == "hold" and position is None:
-        if kdj_j < -12.00:
-            logger.info(f"Oversold KDJ J detected: kdj_j={kdj_j:.2f}")
+        if kdj_j < -12.00 or close_price > open_price:  # Added close_price > open_price condition
+            logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, close={close_price:.2f}, open={open_price:.2f}")
             action = "buy"
 
     if action == "buy" and position is not None:
