@@ -54,6 +54,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID")
 SYMBOL = os.getenv("SYMBOL", "BTC/USDT")
 TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
+TIMEFRAMES = 300
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -2.0)) # 0.15
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 8.0)) # 2.0
 STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 270000)) #180000
@@ -491,7 +492,7 @@ def trading_bot():
                 logger.error(f"Failed to fetch historical data for {SYMBOL}")
                 return
 
-    timeframe_seconds = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '1d': 86400}.get(TIMEFRAME, 60)
+    timeframe_seconds = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '1d': 86400}.get(TIMEFRAME, TIMEFRAMES)
 
     while True:
         with bot_lock:
