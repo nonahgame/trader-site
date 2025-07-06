@@ -50,16 +50,16 @@ werkzeug_logger.setLevel(logging.DEBUG)
 app = Flask(__name__)
 
 # Environment variables
-BOT_TOKEN = os.getenv("BOT_TOKEN", "your-telegram-bot-token")
-CHAT_ID = os.getenv("CHAT_ID", "your-telegram-chat-id")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID")
 SYMBOL = os.getenv("SYMBOL", "BTC/USDT")
-TIMEFRAME = os.getenv("TIMEFRAME", "1m")
+TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -0.15))
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 2.0))
 STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 180000))
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "YOUR_GITHUB_TOKEN")
-GITHUB_REPO = os.getenv("GITHUB_REPO", "YOUR_GITHUB_REPO")
-GITHUB_PATH = os.getenv("GITHUB_PATH", "r_bot.db")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
+GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
+GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
 
 # GitHub API setup
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
@@ -98,10 +98,10 @@ last_valid_price = None
 # GitHub database functions
 def upload_to_github(file_path, file_name):
     try:
-        if not GITHUB_TOKEN or GITHUB_TOKEN == "YOUR_GITHUB_TOKEN":
+        if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_TOKEN":
             logger.error("GITHUB_TOKEN is not set or invalid.")
             return
-        if not GITHUB_REPO or GITHUB_REPO == "YOUR_GITHUB_REPO":
+        if not GITHUB_REPO or GITHUB_REPO == "GITHUB_REPO":
             logger.error("GITHUB_REPO is not set or invalid.")
             return
         if not GITHUB_PATH:
@@ -134,10 +134,10 @@ def upload_to_github(file_path, file_name):
 
 def download_from_github(file_name, destination_path):
     try:
-        if not GITHUB_TOKEN or GITHUB_TOKEN == "YOUR_GITHUB_TOKEN":
+        if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_TOKEN":
             logger.error("GITHUB_TOKEN is not set or invalid.")
             return False
-        if not GITHUB_REPO or GITHUB_REPO == "YOUR_GITHUB_REPO":
+        if not GITHUB_REPO or GITHUB_REPO == "GITHUB_REPO":
             logger.error("GITHUB_REPO is not set or invalid.")
             return False
         if not GITHUB_PATH:
@@ -569,7 +569,7 @@ def trading_bot():
                                         profit = current_price - buy_price
                                         total_profit += profit
                                         return_profit, msg = handle_second_strategy("sell", current_price, profit)
-                                        signal = create_signal("sell", current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, f"Bot paused via Telegram{msg}")
+                                        signal = create_signal("sell", latest_data['Close'], latest_data, df, profit, total_profit, return_profit, total_return_profit, f"Bot paused via Telegram{msg}")
                                         store_signal(signal)
                                         if bot:
                                             send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
@@ -680,8 +680,10 @@ def create_signal(action, current_price, latest_data, df, profit, total_profit, 
         'timeframe': TIMEFRAME
     }
 
+# 1st: Added timing to store_signal to log database write time for diagnosing slow operations
 def store_signal(signal):
     global conn
+    start_time = time.time()
     with db_lock:
         try:
             if conn is None:
@@ -707,13 +709,17 @@ def store_signal(signal):
                 signal['message'], signal['timeframe']
             ))
             conn.commit()
-            logger.debug(f"Signal stored successfully: action={signal['action']}, time={signal['time']}")
+            elapsed = time.time() - start_time
+            logger.debug(f"Signal stored successfully: action={signal['action']}, time={signal['time']}, db_write_time={elapsed:.3f}s")
         except Exception as e:
-            logger.error(f"Error storing signal: {e}")
+            elapsed = time.time() - start_time
+            logger.error(f"Error storing signal after {elapsed:.3f}s: {e}")
             conn = None
 
+# 2nd: Added timing to get_performance to log query execution time for diagnosing slow database operations
 def get_performance():
     global conn
+    start_time = time.time()
     with db_lock:
         try:
             if conn is None:
@@ -746,14 +752,19 @@ Loss Trades: {loss_trades}
 Total Profit: {total_profit_db:.2f}
 Total Return Profit: {total_return_profit_db:.2f}
 """
+            elapsed = time.time() - start_time
+            logger.debug(f"Performance data fetched in {elapsed:.3f}s")
             return message
         except Exception as e:
-            logger.error(f"Error fetching performance: {e}")
+            elapsed = time.time() - start_time
+            logger.error(f"Error fetching performance after {elapsed:.3f}s: {e}")
             conn = None
             return f"Error fetching performance data: {str(e)}"
 
+# 3rd: Added timing to get_trade_counts to log query execution time for diagnosing slow database operations
 def get_trade_counts():
     global conn
+    start_time = time.time()
     with db_lock:
         try:
             if conn is None:
@@ -788,17 +799,21 @@ Loss Trades: {loss_trades}
 Total Profit: {total_profit_db:.2f}
 Total Return Profit: {total_return_profit_db:.2f}
 """
+            elapsed = time.time() - start_time
+            logger.debug(f"Trade counts fetched in {elapsed:.3f}s")
             return message
         except Exception as e:
-            logger.error(f"Error fetching trade counts: {e}")
+            elapsed = time.time() - start_time
+            logger.error(f"Error fetching trade counts after {elapsed:.3f}s: {e}")
             conn = None
             return f"Error fetching trade counts: {str(e)}"
 
-# Flask routes
+# 4th: Optimized index route to use a single database query for both trades and latest signal to reduce lock contention and query time
 @app.route('/')
 def index():
     global conn, stop_time
     status = "active" if bot_active else "stopped"
+    start_time = time.time()
     with db_lock:
         try:
             if conn is None:
@@ -810,18 +825,21 @@ def index():
                     return render_template('index.html', signal=None, status=status, timeframe=TIMEFRAME,
                                          trades=[], stop_time=stop_time_str, current_time=current_time)
             c = conn.cursor()
+            # Single query to fetch latest 16 trades, with the first row as the latest signal
             c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 16")
-            trades = [dict(zip([col[0] for col in c.description], row)) for row in c.fetchall()]
-            c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 1")
-            row = c.fetchone()
-            signal = dict(zip([col[0] for col in c.description], row)) if row else None
+            rows = c.fetchall()
+            columns = [col[0] for col in c.description]
+            trades = [dict(zip(columns, row)) for row in rows]
+            signal = trades[0] if trades else None
             stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S")
             current_time = datetime.now(WAT_TZ).strftime("%Y-%m-%d %H:%M:%S")
-            logger.info(f"Rendering index.html: status={status}, timeframe={TIMEFRAME}, trades={len(trades)}, signal_exists={signal is not None}, signal_time={signal['time'] if signal else 'None'}")
+            elapsed = time.time() - start_time
+            logger.info(f"Rendering index.html: status={status}, timeframe={TIMEFRAME}, trades={len(trades)}, signal_exists={signal is not None}, signal_time={signal['time'] if signal else 'None'}, query_time={elapsed:.3f}s")
             return render_template('index.html', signal=signal, status=status, timeframe=TIMEFRAME,
                                  trades=trades, stop_time=stop_time_str, current_time=current_time)
         except Exception as e:
-            logger.error(f"Error rendering index.html: {e}")
+            elapsed = time.time() - start_time
+            logger.error(f"Error rendering index.html after {elapsed:.3f}s: {e}")
             conn = None
             return "<h1>Error</h1><p>Failed to load page. Please try again later.</p>", 500
 
@@ -834,9 +852,11 @@ def status():
 def performance():
     return jsonify({"performance": get_performance()})
 
+# 5th: Added timing to /trades route to log query execution time
 @app.route('/trades')
 def trades():
     global conn
+    start_time = time.time()
     with db_lock:
         try:
             if conn is None:
@@ -847,10 +867,12 @@ def trades():
             c = conn.cursor()
             c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 16")
             trades = [dict(zip([col[0] for col in c.description], row)) for row in c.fetchall()]
-            logger.debug(f"Fetched {len(trades)} trades for /trades endpoint")
+            elapsed = time.time() - start_time
+            logger.debug(f"Fetched {len(trades)} trades for /trades endpoint in {elapsed:.3f}s")
             return jsonify(trades)
         except Exception as e:
-            logger.error(f"Error fetching trades: {e}")
+            elapsed = time.time() - start_time
+            logger.error(f"Error fetching trades after {elapsed:.3f}s: {e}")
             conn = None
             return jsonify({"error": f"Failed to fetch trades: {str(e)}"}), 500
 
@@ -876,6 +898,8 @@ keep_alive_thread = threading.Thread(target=keep_alive, daemon=True)
 keep_alive_thread.start()
 logger.info("Keep-alive thread started")
 
+# 6th: Added logging to confirm Flask server startup and port
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    logger.info(f"Starting Flask server on port {port}")
+    app.run(host='0.0.0.0', port=port, debug=False)
