@@ -54,7 +54,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID")
 SYMBOL = os.getenv("SYMBOL", "BTC/USDT")
 TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
-TIMEFRAMES = 300
+TIMEFRAMES = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))  # Default to 60
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -2.0)) # 0.15
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 8.0)) # 2.0
 STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 270000)) #180000
@@ -99,10 +99,10 @@ last_valid_price = None
 # GitHub database functions
 def upload_to_github(file_path, file_name):
     try:
-        if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_TOKEN":
+        if not GITHUB_TOKEN or GITHUB_TOKEN == "YOUR_GITHUB_TOKEN":
             logger.error("GITHUB_TOKEN is not set or invalid.")
             return
-        if not GITHUB_REPO or GITHUB_REPO == "GITHUB_REPO":
+        if not GITHUB_REPO or GITHUB_REPO == "YOUR_GITHUB_REPO":
             logger.error("GITHUB_REPO is not set or invalid.")
             return
         if not GITHUB_PATH:
@@ -135,10 +135,10 @@ def upload_to_github(file_path, file_name):
 
 def download_from_github(file_name, destination_path):
     try:
-        if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_TOKEN":
+        if not GITHUB_TOKEN or GITHUB_TOKEN == "YOUR_GITHUB_TOKEN":
             logger.error("GITHUB_TOKEN is not set or invalid.")
             return False
-        if not GITHUB_REPO or GITHUB_REPO == "GITHUB_REPO":
+        if not GITHUB_REPO or GITHUB_REPO == "YOUR_GITHUB_REPO":
             logger.error("GITHUB_REPO is not set or invalid.")
             return False
         if not GITHUB_PATH:
@@ -425,7 +425,16 @@ KDJ J: {signal['j']:.2f}
                 time.sleep(delay)
     logger.error(f"Failed to send Telegram message after {retries} attempts")
 
-# Trading bot logic
+# 7th: Added function to calculate sleep time to align with timeframe boundaries
+def get_next_timeframe_boundary(current_time, timeframe_seconds):
+    """Calculate seconds until the next timeframe boundary (e.g., 21:10:00 for 5m)."""
+    current_seconds = (current_time.hour * 3600 + current_time.minute * 60 + current_time.second)
+    intervals_passed = current_seconds // timeframe_seconds
+    next_boundary = (intervals_passed + 1) * timeframe_seconds
+    seconds_until_boundary = next_boundary - current_seconds
+    return seconds_until_boundary
+
+# 8th: Modified trading_bot to align signal generation with timeframe boundaries (e.g., every 5m at :00, :05, :10)
 def trading_bot():
     global bot_active, position, buy_price, total_profit, pause_duration, pause_start, conn
     bot = None
@@ -492,9 +501,16 @@ def trading_bot():
                 logger.error(f"Failed to fetch historical data for {SYMBOL}")
                 return
 
-    timeframe_seconds = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '1d': 86400}.get(TIMEFRAME, TIMEFRAMES)
+    timeframe_seconds = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '1d': 86400}.get(TIMEFRAME, 60)
+    
+    # Align start to next timeframe boundary
+    current_time = datetime.now(WAT_TZ)
+    seconds_to_wait = get_next_timeframe_boundary(current_time, timeframe_seconds)
+    logger.info(f"Waiting {seconds_to_wait:.2f} seconds to align with next {TIMEFRAME} boundary")
+    time.sleep(seconds_to_wait)
 
     while True:
+        loop_start_time = datetime.now(WAT_TZ)
         with bot_lock:
             if datetime.now(WAT_TZ) >= stop_time:
                 bot_active = False
@@ -533,7 +549,10 @@ def trading_bot():
             latest_data = get_simulated_price()
             if pd.isna(latest_data['Close']):
                 logger.warning("Skipping cycle due to missing price data.")
-                time.sleep(timeframe_seconds)
+                # Sleep until next boundary instead of timeframe_seconds
+                current_time = datetime.now(WAT_TZ)
+                seconds_to_wait = get_next_timeframe_boundary(current_time, timeframe_seconds)
+                time.sleep(seconds_to_wait)
                 continue
             current_price = latest_data['Close']
             current_time = datetime.now(WAT_TZ).strftime("%Y-%m-%d %H:%M:%S")
@@ -647,10 +666,23 @@ def trading_bot():
 
             if bot_active and action != "hold":
                 upload_to_github(db_path, 'r_bot.db')
-            time.sleep(timeframe_seconds)
+            
+            # Sleep until the next timeframe boundary
+            loop_end_time = datetime.now(WAT_TZ)
+            processing_time = (loop_end_time - loop_start_time).total_seconds()
+            seconds_to_wait = get_next_timeframe_boundary(loop_end_time, timeframe_seconds)
+            adjusted_sleep = seconds_to_wait - processing_time
+            if adjusted_sleep < 0:
+                logger.warning(f"Processing time ({processing_time:.2f}s) exceeded timeframe interval ({timeframe_seconds}s), skipping sleep")
+                adjusted_sleep = 0
+            logger.debug(f"Sleeping for {adjusted_sleep:.2f} seconds to align with next {TIMEFRAME} boundary")
+            time.sleep(adjusted_sleep)
         except Exception as e:
             logger.error(f"Error in trading loop: {e}")
-            time.sleep(timeframe_seconds)
+            # Sleep until next boundary on error
+            current_time = datetime.now(WAT_TZ)
+            seconds_to_wait = get_next_timeframe_boundary(current_time, timeframe_seconds)
+            time.sleep(seconds_to_wait)
 
 # Helper functions
 def create_signal(action, current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, msg):
