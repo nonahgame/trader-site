@@ -1,4 +1,3 @@
-#  USA
 import os
 import pandas as pd
 import numpy as np
@@ -65,6 +64,7 @@ GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
 BINANCEUS_API_KEY = os.getenv("BINANCEUS_API_KEY", "BINANCEUS_API_KEY")
 BINANCEUS_SECRET_KEY = os.getenv("BINANCEUS_SECRET_KEY", "BINANCEUS_SECRET_KEY")
+TRADE_VOLUME = float(os.getenv("TRADE_VOLUME", 0.00011))
 
 # GitHub API setup
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
@@ -103,7 +103,6 @@ total_return_profit = 0
 start_time = datetime.now(EASTERN_TZ)
 stop_time = start_time + timedelta(seconds=STOP_AFTER_SECONDS)
 last_valid_price = None
-trade_volume = float(os.getenv("TRADE_VOLUME", 0.00011))
 
 # GitHub database functions
 def upload_to_github(file_path, file_name):
@@ -276,6 +275,18 @@ logger.info("Initializing database in main thread")
 if not setup_database():
     logger.error("Failed to initialize database in main thread. Flask routes may fail.")
 
+# Check account balance (async)
+async def check_balance():
+    try:
+        balance = await exchange.fetch_balance()
+        usdt_free = balance['USDT']['free'] if 'USDT' in balance else 0.0
+        btc_free = balance['BTC']['free'] if 'BTC' in balance else 0.0
+        logger.debug(f"Account balance: {usdt_free:.2f} USDT, {btc_free:.6f} BTC")
+        return usdt_free, btc_free
+    except Exception as e:
+        logger.error(f"Error checking balance: {e}")
+        return 0.0, 0.0
+
 # Fetch price data (async)
 async def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, retries=3, delay=5):
     global last_valid_price
@@ -445,7 +456,7 @@ def get_next_timeframe_boundary(current_time, timeframe_seconds):
     intervals_passed = current_seconds // timeframe_seconds
     next_boundary = (intervals_passed + 1) * timeframe_seconds
     seconds_until_boundary = next_boundary - current_seconds
-    return seconds_until_boundary
+    return max(seconds_until_boundary, 1)  # Ensure at least 1s sleep to avoid tight loops
 
 # Trading bot with live orders
 async def trading_bot():
@@ -525,6 +536,8 @@ async def trading_bot():
 
     while True:
         loop_start_time = datetime.now(EASTERN_TZ)
+        logger.debug(f"Starting trading loop iteration at {loop_start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+
         with bot_lock:
             if datetime.now(EASTERN_TZ) >= stop_time:
                 bot_active = False
@@ -532,7 +545,7 @@ async def trading_bot():
                     latest_data = await get_simulated_price()
                     if not pd.isna(latest_data['Close']):
                         try:
-                            order = await exchange.create_market_sell_order(SYMBOL, trade_volume)
+                            order = await exchange.create_market_sell_order(SYMBOL, TRADE_VOLUME)
                             profit = latest_data['Close'] - buy_price
                             total_profit += profit
                             return_profit, msg = handle_second_strategy("sell", latest_data['Close'], profit)
@@ -540,7 +553,7 @@ async def trading_bot():
                             store_signal(signal)
                             if bot:
                                 send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
-                            logger.info(f"Placed sell order: {order}")
+                            logger.info(f"Placed sell order on stop: {order}")
                         except Exception as e:
                             logger.error(f"Error placing sell order on stop: {e}")
                     position = None
@@ -549,6 +562,7 @@ async def trading_bot():
                 break
 
             if not bot_active:
+                logger.info("Bot is not active, checking again in 10 seconds")
                 await asyncio.sleep(10)
                 continue
 
@@ -565,6 +579,10 @@ async def trading_bot():
                     position = None
                     logger.info("Bot resumed after pause")
 
+            # Check balance before fetching price
+            usdt_free, btc_free = await check_balance()
+            logger.debug(f"Balance check: {usdt_free:.2f} USDT, {btc_free:.6f} BTC")
+
             latest_data = await get_simulated_price()
             if pd.isna(latest_data['Close']):
                 logger.warning("Skipping cycle due to missing price data.")
@@ -574,6 +592,7 @@ async def trading_bot():
                 continue
             current_price = latest_data['Close']
             current_time = datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S")
+            logger.debug(f"Current price: {current_price:.2f}, time: {current_time}")
 
             if bot:
                 try:
@@ -582,24 +601,29 @@ async def trading_bot():
                         if update.message and update.message.text:
                             text = update.message.text.strip()
                             command_chat_id = update.message.chat.id
+                            logger.debug(f"Received Telegram command: {text}")
                             if text == '/help':
                                 bot.send_message(chat_id=command_chat_id, text="Commands: /help, /stop, /stopN, /start, /status, /performance, /count")
                             elif text == '/stop':
                                 with bot_lock:
                                     if bot_active and position == "long":
                                         try:
-                                            order = await exchange.create_market_sell_order(SYMBOL, trade_volume)
-                                            profit = current_price - buy_price
-                                            total_profit += profit
-                                            return_profit, msg = handle_second_strategy("sell", current_price, profit)
-                                            signal = create_signal("sell", current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, f"Bot stopped via Telegram{msg}")
-                                            store_signal(signal)
-                                            if bot:
-                                                send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
-                                            logger.info(f"Placed sell order: {order}")
-                                            position = None
+                                            usdt_free, btc_free = await check_balance()
+                                            if btc_free >= TRADE_VOLUME:
+                                                order = await exchange.create_market_sell_order(SYMBOL, TRADE_VOLUME)
+                                                profit = current_price - buy_price
+                                                total_profit += profit
+                                                return_profit, msg = handle_second_strategy("sell", current_price, profit)
+                                                signal = create_signal("sell", current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, f"Bot stopped via Telegram{msg}")
+                                                store_signal(signal)
+                                                if bot:
+                                                    send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
+                                                logger.info(f"Placed sell order on Telegram stop: {order}")
+                                                position = None
+                                            else:
+                                                logger.error(f"Insufficient BTC balance ({btc_free:.6f}) for sell order of {TRADE_VOLUME:.6f}")
                                         except Exception as e:
-                                            logger.error(f"Error placing sell order on stop: {e}")
+                                            logger.error(f"Error placing sell order on Telegram stop: {e}")
                                     bot_active = False
                                 bot.send_message(chat_id=command_chat_id, text="Bot stopped.")
                                 upload_to_github(db_path, 'r_bot.db')
@@ -610,18 +634,22 @@ async def trading_bot():
                                     pause_start = datetime.now(EASTERN_TZ)
                                     if position == "long":
                                         try:
-                                            order = await exchange.create_market_sell_order(SYMBOL, trade_volume)
-                                            profit = current_price - buy_price
-                                            total_profit += profit
-                                            return_profit, msg = handle_second_strategy("sell", current_price, profit)
-                                            signal = create_signal("sell", latest_data['Close'], latest_data, df, profit, total_profit, return_profit, total_return_profit, f"Bot paused via Telegram{msg}")
-                                            store_signal(signal)
-                                            if bot:
-                                                send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
-                                            logger.info(f"Placed sell order: {order}")
-                                            position = None
+                                            usdt_free, btc_free = await check_balance()
+                                            if btc_free >= TRADE_VOLUME:
+                                                order = await exchange.create_market_sell_order(SYMBOL, TRADE_VOLUME)
+                                                profit = current_price - buy_price
+                                                total_profit += profit
+                                                return_profit, msg = handle_second_strategy("sell", current_price, profit)
+                                                signal = create_signal("sell", latest_data['Close'], latest_data, df, profit, total_profit, return_profit, total_return_profit, f"Bot paused via Telegram{msg}")
+                                                store_signal(signal)
+                                                if bot:
+                                                    send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
+                                                logger.info(f"Placed sell order on Telegram pause: {order}")
+                                                position = None
+                                            else:
+                                                logger.error(f"Insufficient BTC balance ({btc_free:.6f}) for sell order of {TRADE_VOLUME:.6f}")
                                         except Exception as e:
-                                            logger.error(f"Error placing sell order on pause: {e}")
+                                            logger.error(f"Error placing sell order on Telegram pause: {e}")
                                     bot_active = False
                                 bot.send_message(chat_id=command_chat_id, text=f"Bot paused for {pause_duration/60} minutes.")
                                 upload_to_github(db_path, 'r_bot.db')
@@ -633,6 +661,7 @@ async def trading_bot():
                                         pause_start = None
                                         pause_duration = 0
                                         bot.send_message(chat_id=command_chat_id, text="Bot started.")
+                                        logger.info("Bot restarted via Telegram")
                             elif text == '/status':
                                 status = "active" if bot_active else f"paused for {int(pause_duration - (datetime.now(EASTERN_TZ) - pause_start).total_seconds())} seconds" if pause_start else "stopped"
                                 bot.send_message(chat_id=command_chat_id, text=status)
@@ -662,6 +691,7 @@ async def trading_bot():
             prev_close = df['Close'].iloc[-2] if len(df) >= 2 else df['Close'].iloc[-1]
             percent_change = ((current_price - prev_close) / prev_close * 100) if prev_close != 0 else 0.0
             recommended_action, stop_loss, take_profit = ai_decision(df, position=position, buy_price=buy_price)
+            logger.debug(f"AI decision: {recommended_action}, position: {position}, stop_loss: {stop_loss}, take_profit: {take_profit}")
 
             with bot_lock:
                 action = "hold"
@@ -670,35 +700,46 @@ async def trading_bot():
                 msg = f"HOLD {SYMBOL} at {current_price:.2f}"
                 if bot_active and recommended_action == "buy" and position is None:
                     try:
-                        order = await exchange.create_market_buy_order(SYMBOL, trade_volume)
-                        position = "long"
-                        buy_price = current_price
-                        action = "buy"
-                        return_profit, msg_suffix = handle_second_strategy("buy", current_price, 0)
-                        msg = f"BUY {SYMBOL} at {current_price:.2f}{msg_suffix}"
-                        logger.info(f"Placed buy order: {order}")
+                        usdt_free, btc_free = await check_balance()
+                        min_notional = 10  # Binance.US minimum order ~$10
+                        if usdt_free >= current_price * TRADE_VOLUME * 1.001:  # Account for fees
+                            order = await exchange.create_market_buy_order(SYMBOL, TRADE_VOLUME)
+                            position = "long"
+                            buy_price = current_price
+                            action = "buy"
+                            return_profit, msg_suffix = handle_second_strategy("buy", current_price, 0)
+                            msg = f"BUY {SYMBOL} at {current_price:.2f}{msg_suffix}"
+                            logger.info(f"Placed buy order: {order}")
+                        else:
+                            logger.error(f"Insufficient USDT balance ({usdt_free:.2f}) for buy order of {TRADE_VOLUME:.6f} BTC at {current_price:.2f}")
+                            msg = f"Failed to place BUY order for {SYMBOL} at {current_price:.2f}: Insufficient balance"
                     except Exception as e:
                         logger.error(f"Error placing buy order: {e}")
                         action = "hold"
-                        msg = f"Failed to place BUY order for {SYMBOL} at {current_price:.2f}"
+                        msg = f"Failed to place BUY order for {SYMBOL} at {current_price:.2f}: {str(e)}"
                 elif bot_active and recommended_action == "sell" and position == "long":
                     try:
-                        order = await exchange.create_market_sell_order(SYMBOL, trade_volume)
-                        profit = current_price - buy_price
-                        total_profit += profit
-                        return_profit, msg_suffix = handle_second_strategy("sell", current_price, profit)
-                        position = None
-                        action = "sell"
-                        msg = f"SELL {SYMBOL} at {current_price:.2f}, Profit: {profit:.2f}{msg_suffix}"
-                        if stop_loss and current_price <= stop_loss:
-                            msg += " (Stop-Loss)"
-                        elif take_profit and current_price >= take_profit:
-                            msg += " (Take-Profit)"
-                        logger.info(f"Placed sell order: {order}")
+                        usdt_free, btc_free = await check_balance()
+                        if btc_free >= TRADE_VOLUME:
+                            order = await exchange.create_market_sell_order(SYMBOL, TRADE_VOLUME)
+                            profit = current_price - buy_price
+                            total_profit += profit
+                            return_profit, msg_suffix = handle_second_strategy("sell", current_price, profit)
+                            position = None
+                            action = "sell"
+                            msg = f"SELL {SYMBOL} at {current_price:.2f}, Profit: {profit:.2f}{msg_suffix}"
+                            if stop_loss and current_price <= stop_loss:
+                                msg += " (Stop-Loss)"
+                            elif take_profit and current_price >= take_profit:
+                                msg += " (Take-Profit)"
+                            logger.info(f"Placed sell order: {order}")
+                        else:
+                            logger.error(f"Insufficient BTC balance ({btc_free:.6f}) for sell order of {TRADE_VOLUME:.6f}")
+                            msg = f"Failed to place SELL order for {SYMBOL} at {current_price:.2f}: Insufficient balance"
                     except Exception as e:
                         logger.error(f"Error placing sell order: {e}")
                         action = "hold"
-                        msg = f"Failed to place SELL order for {SYMBOL} at {current_price:.2f}"
+                        msg = f"Failed to place SELL order for {SYMBOL} at {current_price:.2f}: {str(e)}"
 
                 signal = create_signal(action, current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, msg)
                 store_signal(signal)
@@ -713,19 +754,15 @@ async def trading_bot():
             loop_end_time = datetime.now(EASTERN_TZ)
             processing_time = (loop_end_time - loop_start_time).total_seconds()
             seconds_to_wait = get_next_timeframe_boundary(loop_end_time, timeframe_seconds)
-            adjusted_sleep = seconds_to_wait - processing_time
-            if adjusted_sleep < 0:
-                logger.warning(f"Processing time ({processing_time:.2f}s) exceeded timeframe interval ({timeframe_seconds}s), skipping sleep")
-                adjusted_sleep = 0
-            logger.debug(f"Sleeping for {adjusted_sleep:.2f} seconds to align with next {TIMEFRAME} boundary")
+            adjusted_sleep = max(seconds_to_wait - processing_time, 1)
+            logger.debug(f"Sleeping for {adjusted_sleep:.2f} seconds to align with next {TIMEFRAME} boundary, processing_time={processing_time:.2f}s")
             await asyncio.sleep(adjusted_sleep)
         except Exception as e:
-            logger.error(f"Error in trading loop: {e}")
+            logger.error(f"Error in trading loop: {e}", exc_info=True)
             current_time = datetime.now(EASTERN_TZ)
             seconds_to_wait = get_next_timeframe_boundary(current_time, timeframe_seconds)
+            logger.debug(f"Recovering from error, sleeping for {seconds_to_wait:.2f} seconds")
             await asyncio.sleep(seconds_to_wait)
-        finally:
-            await exchange.close()
 
 # Helper functions
 def create_signal(action, current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, msg):
