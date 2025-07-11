@@ -49,7 +49,7 @@ class LongOnlyTrader:
                 )
                 # Keep the event loop running
                 while True:
-                    if datetime.now(dt.UTC) >= datetime(2025, 7, 11, 15, 52):
+                    if datetime.now(dt.UTC) >= datetime(2025, 7, 11, 22, 52):
                         logger.info("Trading session ended due to time limit")
                         break
                     await asyncio.sleep(1)  # Prevent tight loop
