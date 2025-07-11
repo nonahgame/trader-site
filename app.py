@@ -5,21 +5,20 @@ import sqlite3
 import time
 from datetime import datetime, timedelta
 import pytz
-import ccxt.async_support as ccxt
+import ccxt
 import pandas_ta as ta
 from telegram import Bot
 import telegram
+import logging
 import threading
 import requests
 import base64
-import logging
 from flask import Flask, render_template, jsonify
 import atexit
-import asyncio
 
-# Custom formatter for US/Eastern timezone (retained for consistency)
-class EasternFormatter(logging.Formatter):
-    def __init__(self, fmt=None, datefmt=None, tz=pytz.timezone('US/Eastern')):
+# Custom formatter for WAT timezone
+class WATFormatter(logging.Formatter):
+    def __init__(self, fmt=None, datefmt=None, tz=pytz.timezone('Africa/Lagos')):
         super().__init__(fmt, datefmt)
         self.tz = tz
 
@@ -43,7 +42,7 @@ logger = logging.getLogger(__name__)
 # Customize werkzeug logger
 werkzeug_logger = logging.getLogger('werkzeug')
 werkzeug_handler = logging.StreamHandler()
-werkzeug_handler.setFormatter(EasternFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
+werkzeug_handler.setFormatter(WATFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
 werkzeug_logger.handlers = [werkzeug_handler, logging.FileHandler('td_sto.log')]
 werkzeug_logger.setLevel(logging.DEBUG)
 
@@ -55,18 +54,13 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID")
 SYMBOL = os.getenv("SYMBOL", "BTC/USDT")
 TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
-TIMEFRAMES = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))
-STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -2.0))
-TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 8.0))
-STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 270000))
+TIMEFRAMES = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))  # Default to 60
+STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -2.0)) # 0.15
+TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 8.0)) # 2.0
+STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 270000)) #180000
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
-BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "BINANCE_API_KEY")
-BINANCE_SECRET_KEY = os.getenv("BINANCE_SECRET_KEY", "BINANCE_SECRET_KEY")
-TRADE_VOLUME = float(os.getenv("TRADE_VOLUME", 0.00011))
-PROXY_HTTP = os.getenv("PROXY_HTTP", "http://102.214.216.233:80")  # Optional proxy
-PROXY_HTTPS = os.getenv("PROXY_HTTPS", "http://169.239.223.79:9999")  # Optional proxy
 
 # GitHub API setup
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
@@ -79,7 +73,7 @@ HEADERS = {
 db_path = 'r_bot.db'
 
 # Timezone setup
-EASTERN_TZ = pytz.timezone('US/Eastern')
+WAT_TZ = pytz.timezone('Africa/Lagos')
 
 # Global state
 bot_thread = None
@@ -87,12 +81,7 @@ bot_active = True
 bot_lock = threading.Lock()
 db_lock = threading.Lock()
 conn = None
-exchange = ccxt.binance({
-    'apiKey': BINANCE_API_KEY,
-    'secret': BINANCE_SECRET_KEY,
-    'enableRateLimit': True,
-    'proxies': {'http': PROXY_HTTP, 'https': PROXY_HTTPS} if PROXY_HTTP and PROXY_HTTPS else {}
-})
+exchange = ccxt.kraken()
 position = None
 buy_price = None
 total_profit = 0
@@ -103,17 +92,17 @@ last_sell_profit = 0
 tracking_has_buy = False
 tracking_buy_price = None
 total_return_profit = 0
-start_time = datetime.now(EASTERN_TZ)
+start_time = datetime.now(WAT_TZ)
 stop_time = start_time + timedelta(seconds=STOP_AFTER_SECONDS)
 last_valid_price = None
 
 # GitHub database functions
 def upload_to_github(file_path, file_name):
     try:
-        if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_TOKEN":
+        if not GITHUB_TOKEN or GITHUB_TOKEN == "YOUR_GITHUB_TOKEN":
             logger.error("GITHUB_TOKEN is not set or invalid.")
             return
-        if not GITHUB_REPO or GITHUB_REPO == "GITHUB_REPO":
+        if not GITHUB_REPO or GITHUB_REPO == "YOUR_GITHUB_REPO":
             logger.error("GITHUB_REPO is not set or invalid.")
             return
         if not GITHUB_PATH:
@@ -146,10 +135,10 @@ def upload_to_github(file_path, file_name):
 
 def download_from_github(file_name, destination_path):
     try:
-        if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_TOKEN":
+        if not GITHUB_TOKEN or GITHUB_TOKEN == "YOUR_GITHUB_TOKEN":
             logger.error("GITHUB_TOKEN is not set or invalid.")
             return False
-        if not GITHUB_REPO or GITHUB_REPO == "GITHUB_REPO":
+        if not GITHUB_REPO or GITHUB_REPO == "YOUR_GITHUB_REPO":
             logger.error("GITHUB_REPO is not set or invalid.")
             return False
         if not GITHUB_PATH:
@@ -278,30 +267,18 @@ logger.info("Initializing database in main thread")
 if not setup_database():
     logger.error("Failed to initialize database in main thread. Flask routes may fail.")
 
-# Check account balance (async)
-async def check_balance():
-    try:
-        balance = await exchange.fetch_balance()
-        usdt_free = balance['USDT']['free'] if 'USDT' in balance else 0.0
-        btc_free = balance['BTC']['free'] if 'BTC' in balance else 0.0
-        logger.debug(f"Account balance: {usdt_free:.2f} USDT, {btc_free:.6f} BTC")
-        return usdt_free, btc_free
-    except Exception as e:
-        logger.error(f"Error checking balance: {e}")
-        return 0.0, 0.0
-
-# Fetch price data (async)
-async def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, retries=3, delay=5):
+# Fetch price data
+def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, retries=3, delay=5):
     global last_valid_price
     for attempt in range(retries):
         try:
-            ohlcv = await exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=5)
+            ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=5)
             if not ohlcv:
                 logger.warning(f"No data returned for {symbol}. Retrying...")
-                await asyncio.sleep(delay)
+                time.sleep(delay)
                 continue
             data = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
-            data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms').dt.tz_localize('UTC').dt.tz_convert(EASTERN_TZ)
+            data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms').dt.tz_localize('UTC').dt.tz_convert(WAT_TZ)
             data['diff'] = data['Close'] - data['Open']
             non_zero_diff = data[abs(data['diff']) > 0]
             selected_data = non_zero_diff.iloc[-1] if not non_zero_diff.empty else data.iloc[-1]
@@ -313,7 +290,7 @@ async def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFR
         except Exception as e:
             logger.error(f"Error fetching price (attempt {attempt + 1}/{retries}): {e}")
             if attempt < retries - 1:
-                await asyncio.sleep(delay)
+                time.sleep(delay)
     logger.error(f"Failed to fetch price for {symbol} after {retries} attempts.")
     if last_valid_price is not None:
         logger.info("Using last valid price data as fallback.")
@@ -337,7 +314,8 @@ def add_technical_indicators(df):
         logger.error(f"Error calculating indicators: {e}")
         return df
 
-# AI decision logic (simplified for testing)
+# AI decision logic
+# AI decision logic
 def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAKE_PROFIT_PERCENT, position=None, buy_price=None):
     if df.empty or len(df) < 1:
         logger.warning("DataFrame is empty or too small for decision.")
@@ -367,12 +345,12 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         elif close_price < open_price:
             logger.info(f"Downward price movement detected: open={open_price:.2f}, close={close_price:.2f}")
             action = "sell"
-        elif kdj_j > 80.0:
+        elif kdj_j > 123.00:
             logger.info(f"Overbought KDJ J detected: kdj_j={kdj_j:.2f}")
             action = "sell"
 
     if action == "hold" and position is None:
-        if kdj_j < 20.0 or (close_price > open_price and ema1 > ema2):
+        if kdj_j < -4.00 or (close_price > open_price and ema1 > ema2) or kdj_j > kdj_d:
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
 
@@ -453,17 +431,18 @@ KDJ J: {signal['j']:.2f}
                 time.sleep(delay)
     logger.error(f"Failed to send Telegram message after {retries} attempts")
 
-# Calculate sleep time to align with timeframe boundaries
+# 7th: Added function to calculate sleep time to align with timeframe boundaries
 def get_next_timeframe_boundary(current_time, timeframe_seconds):
+    """Calculate seconds until the next timeframe boundary (e.g., 21:10:00 for 5m)."""
     current_seconds = (current_time.hour * 3600 + current_time.minute * 60 + current_time.second)
     intervals_passed = current_seconds // timeframe_seconds
     next_boundary = (intervals_passed + 1) * timeframe_seconds
     seconds_until_boundary = next_boundary - current_seconds
-    return max(seconds_until_boundary, 1)
+    return seconds_until_boundary
 
-# Trading bot with live orders
-async def trading_bot():
-    global bot_active, position, buy_price, total_profit, pause_duration, pause_start, conn, exchange
+# 8th: Modified trading_bot to align signal generation with timeframe boundaries (e.g., every 5m at :00, :05, :10)
+def trading_bot():
+    global bot_active, position, buy_price, total_profit, pause_duration, pause_start, conn
     bot = None
     try:
         bot = Bot(token=BOT_TOKEN)
@@ -477,7 +456,7 @@ async def trading_bot():
     df = None
 
     initial_signal = {
-        'time': datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+        'time': datetime.now(WAT_TZ).strftime("%Y-%m-%d %H:%M:%S"),
         'action': 'hold',
         'symbol': SYMBOL,
         'price': 0.0,
@@ -507,14 +486,13 @@ async def trading_bot():
 
     for attempt in range(3):
         try:
-            await exchange.load_markets()
-            ohlcv = await exchange.fetch_ohlcv(SYMBOL, timeframe=TIMEFRAME, limit=100)
+            ohlcv = exchange.fetch_ohlcv(SYMBOL, timeframe=TIMEFRAME, limit=100)
             if not ohlcv:
                 logger.warning(f"No historical data for {SYMBOL}. Retrying...")
-                await asyncio.sleep(5)
+                time.sleep(5)
                 continue
             df = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms').dt.tz_localize('UTC').dt.tz_convert(EASTERN_TZ)
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms').dt.tz_localize('UTC').dt.tz_convert(WAT_TZ)
             df.set_index('timestamp', inplace=True)
             df['High'] = df['High'].fillna(df['Close'])
             df['Low'] = df['Low'].fillna(df['Close'])
@@ -524,57 +502,49 @@ async def trading_bot():
         except Exception as e:
             logger.error(f"Error fetching historical data (attempt {attempt + 1}/3): {e}")
             if attempt < 2:
-                await asyncio.sleep(5)
+                time.sleep(5)
             else:
                 logger.error(f"Failed to fetch historical data for {SYMBOL}")
                 return
 
-    timeframe_seconds = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '1d': 86400}.get(TIMEFRAME, TIMEFRAMES)
+    timeframe_seconds = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '1d': 86400}.get(TIMEFRAME, 60)
     
     # Align start to next timeframe boundary
-    current_time = datetime.now(EASTERN_TZ)
+    current_time = datetime.now(WAT_TZ)
     seconds_to_wait = get_next_timeframe_boundary(current_time, timeframe_seconds)
     logger.info(f"Waiting {seconds_to_wait:.2f} seconds to align with next {TIMEFRAME} boundary")
-    await asyncio.sleep(seconds_to_wait)
+    time.sleep(seconds_to_wait)
 
     while True:
-        loop_start_time = datetime.now(EASTERN_TZ)
-        logger.debug(f"Starting trading loop iteration at {loop_start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-
+        loop_start_time = datetime.now(WAT_TZ)
         with bot_lock:
-            if datetime.now(EASTERN_TZ) >= stop_time:
+            if datetime.now(WAT_TZ) >= stop_time:
                 bot_active = False
                 if position == "long":
-                    latest_data = await get_simulated_price()
+                    latest_data = get_simulated_price()
                     if not pd.isna(latest_data['Close']):
-                        try:
-                            order = await exchange.create_market_sell_order(SYMBOL, TRADE_VOLUME)
-                            profit = latest_data['Close'] - buy_price
-                            total_profit += profit
-                            return_profit, msg = handle_second_strategy("sell", latest_data['Close'], profit)
-                            signal = create_signal("sell", latest_data['Close'], latest_data, df, profit, total_profit, return_profit, total_return_profit, f"Bot stopped due to time limit{msg}")
-                            store_signal(signal)
-                            if bot:
-                                send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
-                            logger.info(f"Placed sell order on stop: {order}")
-                        except Exception as e:
-                            logger.error(f"Error placing sell order on stop: {e}")
+                        profit = latest_data['Close'] - buy_price
+                        total_profit += profit
+                        return_profit, msg = handle_second_strategy("sell", latest_data['Close'], profit)
+                        signal = create_signal("sell", latest_data['Close'], latest_data, df, profit, total_profit, return_profit, total_return_profit, f"Bot stopped due to time limit{msg}")
+                        store_signal(signal)
+                        if bot:
+                            send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
                     position = None
                 logger.info("Bot stopped due to time limit")
                 upload_to_github(db_path, 'r_bot.db')
                 break
 
             if not bot_active:
-                logger.info("Bot is not active, checking again in 10 seconds")
-                await asyncio.sleep(10)
+                time.sleep(10)
                 continue
 
         try:
             if pause_start and pause_duration > 0:
-                elapsed = (datetime.now(EASTERN_TZ) - pause_start).total_seconds()
+                elapsed = (datetime.now(WAT_TZ) - pause_start).total_seconds()
                 if elapsed < pause_duration:
                     logger.info(f"Bot paused, resuming in {int(pause_duration - elapsed)} seconds")
-                    await asyncio.sleep(min(pause_duration - elapsed, 60))
+                    time.sleep(min(pause_duration - elapsed, 60))
                     continue
                 else:
                     pause_start = None
@@ -582,20 +552,16 @@ async def trading_bot():
                     position = None
                     logger.info("Bot resumed after pause")
 
-            # Check balance
-            usdt_free, btc_free = await check_balance()
-            logger.debug(f"Balance check: {usdt_free:.2f} USDT, {btc_free:.6f} BTC")
-
-            latest_data = await get_simulated_price()
+            latest_data = get_simulated_price()
             if pd.isna(latest_data['Close']):
                 logger.warning("Skipping cycle due to missing price data.")
-                current_time = datetime.now(EASTERN_TZ)
+                # Sleep until next boundary instead of timeframe_seconds
+                current_time = datetime.now(WAT_TZ)
                 seconds_to_wait = get_next_timeframe_boundary(current_time, timeframe_seconds)
-                await asyncio.sleep(seconds_to_wait)
+                time.sleep(seconds_to_wait)
                 continue
             current_price = latest_data['Close']
-            current_time = datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S")
-            logger.debug(f"Current price: {current_price:.2f}, time: {current_time}")
+            current_time = datetime.now(WAT_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
             if bot:
                 try:
@@ -604,29 +570,19 @@ async def trading_bot():
                         if update.message and update.message.text:
                             text = update.message.text.strip()
                             command_chat_id = update.message.chat.id
-                            logger.debug(f"Received Telegram command: {text}")
                             if text == '/help':
                                 bot.send_message(chat_id=command_chat_id, text="Commands: /help, /stop, /stopN, /start, /status, /performance, /count")
                             elif text == '/stop':
                                 with bot_lock:
                                     if bot_active and position == "long":
-                                        try:
-                                            usdt_free, btc_free = await check_balance()
-                                            if btc_free >= TRADE_VOLUME:
-                                                order = await exchange.create_market_sell_order(SYMBOL, TRADE_VOLUME)
-                                                profit = current_price - buy_price
-                                                total_profit += profit
-                                                return_profit, msg = handle_second_strategy("sell", current_price, profit)
-                                                signal = create_signal("sell", current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, f"Bot stopped via Telegram{msg}")
-                                                store_signal(signal)
-                                                if bot:
-                                                    send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
-                                                logger.info(f"Placed sell order on Telegram stop: {order}")
-                                                position = None
-                                            else:
-                                                logger.error(f"Insufficient BTC balance ({btc_free:.6f}) for sell order of {TRADE_VOLUME:.6f}")
-                                        except Exception as e:
-                                            logger.error(f"Error placing sell order on Telegram stop: {e}")
+                                        profit = current_price - buy_price
+                                        total_profit += profit
+                                        return_profit, msg = handle_second_strategy("sell", current_price, profit)
+                                        signal = create_signal("sell", current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, f"Bot stopped via Telegram{msg}")
+                                        store_signal(signal)
+                                        if bot:
+                                            send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
+                                        position = None
                                     bot_active = False
                                 bot.send_message(chat_id=command_chat_id, text="Bot stopped.")
                                 upload_to_github(db_path, 'r_bot.db')
@@ -634,25 +590,16 @@ async def trading_bot():
                                 multiplier = int(text[5:])
                                 with bot_lock:
                                     pause_duration = multiplier * timeframe_seconds
-                                    pause_start = datetime.now(EASTERN_TZ)
+                                    pause_start = datetime.now(WAT_TZ)
                                     if position == "long":
-                                        try:
-                                            usdt_free, btc_free = await check_balance()
-                                            if btc_free >= TRADE_VOLUME:
-                                                order = await exchange.create_market_sell_order(SYMBOL, TRADE_VOLUME)
-                                                profit = current_price - buy_price
-                                                total_profit += profit
-                                                return_profit, msg = handle_second_strategy("sell", current_price, profit)
-                                                signal = create_signal("sell", latest_data['Close'], latest_data, df, profit, total_profit, return_profit, total_return_profit, f"Bot paused via Telegram{msg}")
-                                                store_signal(signal)
-                                                if bot:
-                                                    send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
-                                                logger.info(f"Placed sell order on Telegram pause: {order}")
-                                                position = None
-                                            else:
-                                                logger.error(f"Insufficient BTC balance ({btc_free:.6f}) for sell order of {TRADE_VOLUME:.6f}")
-                                        except Exception as e:
-                                            logger.error(f"Error placing sell order on Telegram pause: {e}")
+                                        profit = current_price - buy_price
+                                        total_profit += profit
+                                        return_profit, msg = handle_second_strategy("sell", current_price, profit)
+                                        signal = create_signal("sell", latest_data['Close'], latest_data, df, profit, total_profit, return_profit, total_return_profit, f"Bot paused via Telegram{msg}")
+                                        store_signal(signal)
+                                        if bot:
+                                            send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
+                                        position = None
                                     bot_active = False
                                 bot.send_message(chat_id=command_chat_id, text=f"Bot paused for {pause_duration/60} minutes.")
                                 upload_to_github(db_path, 'r_bot.db')
@@ -664,9 +611,8 @@ async def trading_bot():
                                         pause_start = None
                                         pause_duration = 0
                                         bot.send_message(chat_id=command_chat_id, text="Bot started.")
-                                        logger.info("Bot restarted via Telegram")
                             elif text == '/status':
-                                status = "active" if bot_active else f"paused for {int(pause_duration - (datetime.now(EASTERN_TZ) - pause_start).total_seconds())} seconds" if pause_start else "stopped"
+                                status = "active" if bot_active else f"paused for {int(pause_duration - (datetime.now(WAT_TZ) - pause_start).total_seconds())} seconds" if pause_start else "stopped"
                                 bot.send_message(chat_id=command_chat_id, text=status)
                             elif text == '/performance':
                                 bot.send_message(chat_id=command_chat_id, text=get_performance())
@@ -687,14 +633,13 @@ async def trading_bot():
                 'Low': [latest_data['Low']],
                 'Volume': [latest_data['Volume']],
                 'diff': [latest_data['diff']]
-            }, index=[pd.Timestamp.now(tz=EASTERN_TZ)])
+            }, index=[pd.Timestamp.now(tz=WAT_TZ)])
             df = pd.concat([df, new_row]).tail(100)
             df = add_technical_indicators(df)
 
             prev_close = df['Close'].iloc[-2] if len(df) >= 2 else df['Close'].iloc[-1]
             percent_change = ((current_price - prev_close) / prev_close * 100) if prev_close != 0 else 0.0
             recommended_action, stop_loss, take_profit = ai_decision(df, position=position, buy_price=buy_price)
-            logger.debug(f"AI decision: {recommended_action}, position: {position}, stop_loss: {stop_loss}, take_profit: {take_profit}")
 
             with bot_lock:
                 action = "hold"
@@ -702,76 +647,54 @@ async def trading_bot():
                 return_profit = 0
                 msg = f"HOLD {SYMBOL} at {current_price:.2f}"
                 if bot_active and recommended_action == "buy" and position is None:
-                    try:
-                        usdt_free, btc_free = await check_balance()
-                        min_notional = 10  # Binance minimum order ~$10
-                        if usdt_free >= current_price * TRADE_VOLUME * 1.001:
-                            order = await exchange.create_market_buy_order(SYMBOL, TRADE_VOLUME)
-                            position = "long"
-                            buy_price = current_price
-                            action = "buy"
-                            return_profit, msg_suffix = handle_second_strategy("buy", current_price, 0)
-                            msg = f"BUY {SYMBOL} at {current_price:.2f}{msg_suffix}"
-                            logger.info(f"Placed buy order: {order}")
-                        else:
-                            logger.error(f"Insufficient USDT balance ({usdt_free:.2f}) for buy order of {TRADE_VOLUME:.6f} BTC at {current_price:.2f}")
-                            msg = f"Failed to place BUY order for {SYMBOL} at {current_price:.2f}: Insufficient balance"
-                    except Exception as e:
-                        logger.error(f"Error placing buy order: {e}")
-                        action = "hold"
-                        msg = f"Failed to place BUY order for {SYMBOL} at {current_price:.2f}: {str(e)}"
+                    position = "long"
+                    buy_price = current_price
+                    action = "buy"
+                    return_profit, msg_suffix = handle_second_strategy("buy", current_price, 0)
+                    msg = f"BUY {SYMBOL} at {current_price:.2f}{msg_suffix}"
                 elif bot_active and recommended_action == "sell" and position == "long":
-                    try:
-                        usdt_free, btc_free = await check_balance()
-                        if btc_free >= TRADE_VOLUME:
-                            order = await exchange.create_market_sell_order(SYMBOL, TRADE_VOLUME)
-                            profit = current_price - buy_price
-                            total_profit += profit
-                            return_profit, msg_suffix = handle_second_strategy("sell", current_price, profit)
-                            position = None
-                            action = "sell"
-                            msg = f"SELL {SYMBOL} at {current_price:.2f}, Profit: {profit:.2f}{msg_suffix}"
-                            if stop_loss and current_price <= stop_loss:
-                                msg += " (Stop-Loss)"
-                            elif take_profit and current_price >= take_profit:
-                                msg += " (Take-Profit)"
-                            logger.info(f"Placed sell order: {order}")
-                        else:
-                            logger.error(f"Insufficient BTC balance ({btc_free:.6f}) for sell order of {TRADE_VOLUME:.6f}")
-                            msg = f"Failed to place SELL order for {SYMBOL} at {current_price:.2f}: Insufficient balance"
-                    except Exception as e:
-                        logger.error(f"Error placing sell order: {e}")
-                        action = "hold"
-                        msg = f"Failed to place SELL order for {SYMBOL} at {current_price:.2f}: {str(e)}"
+                    profit = current_price - buy_price
+                    total_profit += profit
+                    return_profit, msg_suffix = handle_second_strategy("sell", current_price, profit)
+                    position = None
+                    action = "sell"
+                    msg = f"SELL {SYMBOL} at {current_price:.2f}, Profit: {profit:.2f}{msg_suffix}"
+                    if stop_loss and current_price <= stop_loss:
+                        msg += " (Stop-Loss)"
+                    elif take_profit and current_price >= take_profit:
+                        msg += " (Take-Profit)"
 
                 signal = create_signal(action, current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, msg)
                 store_signal(signal)
-                logger.debug(f"Generated and stored signal: action={signal['action']}, time={signal['time']}, price={signal['price']:.2f}")
+                logger.debug(f"Generated signal: action={signal['action']}, time={signal['time']}, price={signal['price']:.2f}")
                 if bot_active and action != "hold" and bot:
                     threading.Thread(target=send_telegram_message, args=(signal, BOT_TOKEN, CHAT_ID), daemon=True).start()
 
-            # Store all signals to ensure database updates every minute
-            upload_to_github(db_path, 'r_bot.db')
+            if bot_active and action != "hold":
+                upload_to_github(db_path, 'r_bot.db')
             
             # Sleep until the next timeframe boundary
-            loop_end_time = datetime.now(EASTERN_TZ)
+            loop_end_time = datetime.now(WAT_TZ)
             processing_time = (loop_end_time - loop_start_time).total_seconds()
             seconds_to_wait = get_next_timeframe_boundary(loop_end_time, timeframe_seconds)
-            adjusted_sleep = max(seconds_to_wait - processing_time, 1)
-            logger.debug(f"Sleeping for {adjusted_sleep:.2f} seconds to align with next {TIMEFRAME} boundary, processing_time={processing_time:.2f}s")
-            await asyncio.sleep(adjusted_sleep)
+            adjusted_sleep = seconds_to_wait - processing_time
+            if adjusted_sleep < 0:
+                logger.warning(f"Processing time ({processing_time:.2f}s) exceeded timeframe interval ({timeframe_seconds}s), skipping sleep")
+                adjusted_sleep = 0
+            logger.debug(f"Sleeping for {adjusted_sleep:.2f} seconds to align with next {TIMEFRAME} boundary")
+            time.sleep(adjusted_sleep)
         except Exception as e:
-            logger.error(f"Error in trading loop: {e}", exc_info=True)
-            current_time = datetime.now(EASTERN_TZ)
+            logger.error(f"Error in trading loop: {e}")
+            # Sleep until next boundary on error
+            current_time = datetime.now(WAT_TZ)
             seconds_to_wait = get_next_timeframe_boundary(current_time, timeframe_seconds)
-            logger.debug(f"Recovering from error, sleeping for {seconds_to_wait:.2f} seconds")
-            await asyncio.sleep(seconds_to_wait)
+            time.sleep(seconds_to_wait)
 
 # Helper functions
 def create_signal(action, current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, msg):
     latest = df.iloc[-1]
-    signal = {
-        'time': datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+    return {
+        'time': datetime.now(WAT_TZ).strftime("%Y-%m-%d %H:%M:%S"),
         'action': action,
         'symbol': SYMBOL,
         'price': float(current_price),
@@ -795,9 +718,8 @@ def create_signal(action, current_price, latest_data, df, profit, total_profit, 
         'message': msg,
         'timeframe': TIMEFRAME
     }
-    logger.debug(f"Created signal: {signal}")
-    return signal
 
+# 1st: Added timing to store_signal to log database write time for diagnosing slow operations
 def store_signal(signal):
     global conn
     start_time = time.time()
@@ -827,12 +749,13 @@ def store_signal(signal):
             ))
             conn.commit()
             elapsed = time.time() - start_time
-            logger.info(f"Signal stored successfully: action={signal['action']}, time={signal['time']}, db_write_time={elapsed:.3f}s")
+            logger.debug(f"Signal stored successfully: action={signal['action']}, time={signal['time']}, db_write_time={elapsed:.3f}s")
         except Exception as e:
             elapsed = time.time() - start_time
-            logger.error(f"Error storing signal after {elapsed:.3f}s: {e}", exc_info=True)
+            logger.error(f"Error storing signal after {elapsed:.3f}s: {e}")
             conn = None
 
+# 2nd: Added timing to get_performance to log query execution time for diagnosing slow database operations
 def get_performance():
     global conn
     start_time = time.time()
@@ -877,6 +800,7 @@ Total Return Profit: {total_return_profit_db:.2f}
             conn = None
             return f"Error fetching performance data: {str(e)}"
 
+# 3rd: Added timing to get_trade_counts to log query execution time for diagnosing slow database operations
 def get_trade_counts():
     global conn
     start_time = time.time()
@@ -923,6 +847,7 @@ Total Return Profit: {total_return_profit_db:.2f}
             conn = None
             return f"Error fetching trade counts: {str(e)}"
 
+# 4th: Optimized index route to use a single database query for both trades and latest signal to reduce lock contention and query time
 @app.route('/')
 def index():
     global conn, stop_time
@@ -935,17 +860,18 @@ def index():
                 if not setup_database():
                     logger.error("Failed to reinitialize database for index route")
                     stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S")
-                    current_time = datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S")
+                    current_time = datetime.now(WAT_TZ).strftime("%Y-%m-%d %H:%M:%S")
                     return render_template('index.html', signal=None, status=status, timeframe=TIMEFRAME,
                                          trades=[], stop_time=stop_time_str, current_time=current_time)
             c = conn.cursor()
+            # Single query to fetch latest 16 trades, with the first row as the latest signal
             c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 16")
             rows = c.fetchall()
             columns = [col[0] for col in c.description]
             trades = [dict(zip(columns, row)) for row in rows]
             signal = trades[0] if trades else None
             stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S")
-            current_time = datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S")
+            current_time = datetime.now(WAT_TZ).strftime("%Y-%m-%d %H:%M:%S")
             elapsed = time.time() - start_time
             logger.info(f"Rendering index.html: status={status}, timeframe={TIMEFRAME}, trades={len(trades)}, signal_exists={signal is not None}, signal_time={signal['time'] if signal else 'None'}, query_time={elapsed:.3f}s")
             return render_template('index.html', signal=signal, status=status, timeframe=TIMEFRAME,
@@ -954,9 +880,7 @@ def index():
             elapsed = time.time() - start_time
             logger.error(f"Error rendering index.html after {elapsed:.3f}s: {e}")
             conn = None
-            return render_template('index.html', signal=None, status=status, timeframe=TIMEFRAME,
-                                  trades=[], stop_time=stop_time.strftime("%Y-%m-%d %H:%M:%S"),
-                                  current_time=datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S"))
+            return "<h1>Error</h1><p>Failed to load page. Please try again later.</p>", 500
 
 @app.route('/status')
 def status():
@@ -967,6 +891,7 @@ def status():
 def performance():
     return jsonify({"performance": get_performance()})
 
+# 5th: Added timing to /trades route to log query execution time
 @app.route('/trades')
 def trades():
     global conn
@@ -992,33 +917,28 @@ def trades():
 
 # Cleanup
 def cleanup():
-    global conn, exchange
+    global conn
     if conn:
         conn.close()
         logger.info("Database connection closed")
         upload_to_github(db_path, 'r_bot.db')
         logger.info("Final database backup to GitHub completed")
-    asyncio.run(exchange.close())
-    logger.info("Exchange connection closed")
 
 atexit.register(cleanup)
 
-# Start trading bot in async context
-async def main():
-    global bot_thread
-    if bot_thread is None or not bot_thread.is_alive():
-        bot_thread = threading.Thread(target=lambda: asyncio.run(trading_bot()), daemon=True)
-        bot_thread.start()
-        logger.info("Trading bot started automatically")
+# Start trading bot
+if bot_thread is None or not bot_thread.is_alive():
+    bot_thread = threading.Thread(target=trading_bot, daemon=True)
+    bot_thread.start()
+    logger.info("Trading bot started automatically")
 
-    # Start keep-alive thread
-    keep_alive_thread = threading.Thread(target=keep_alive, daemon=True)
-    keep_alive_thread.start()
-    logger.info("Keep-alive thread started")
+# Start keep-alive thread
+keep_alive_thread = threading.Thread(target=keep_alive, daemon=True)
+keep_alive_thread.start()
+logger.info("Keep-alive thread started")
 
-# Start Flask server
+# 6th: Added logging to confirm Flask server startup and port
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
     logger.info(f"Starting Flask server on port {port}")
-    asyncio.run(main())
     app.run(host='0.0.0.0', port=port, debug=False)
