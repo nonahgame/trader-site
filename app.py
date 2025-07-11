@@ -12,10 +12,15 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Initialize Binance client (replace with your API key and secret)
-api_key = os.getenv("BINANCE_API_KEY", "api_key")  # Use environment variables for security
+# Initialize Binance client with environment variables
+api_key = os.getenv("BINANCE_API_KEY", "api_key")  # Replace with actual key for testing
 secret_key = os.getenv("BINANCE_SECRET_KEY", "secret_key")
-client = Client(api_key=api_key, api_secret=secret_key, tld="us", testnet=False) #True)
+try:
+    client = Client(api_key=api_key, api_secret=secret_key, tld="us", testnet=False)
+    logger.info("Binance client initialized successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize Binance client: {str(e)}")
+    raise
 
 class LongOnlyTrader:
     def __init__(self, symbol, bar_length, return_thresh, volume_thresh, units, position=0):
@@ -49,7 +54,7 @@ class LongOnlyTrader:
                 )
                 # Keep the event loop running
                 while True:
-                    if datetime.now(dt.UTC) >= datetime(2025, 7, 11, 22, 52):
+                    if datetime.now(dt.UTC) >= datetime(2025, 7, 11, 23, 52):
                         logger.info("Trading session ended due to time limit")
                         break
                     await asyncio.sleep(1)  # Prevent tight loop
@@ -58,7 +63,7 @@ class LongOnlyTrader:
         except Exception as e:
             logger.error(f"Error in start_trading: {str(e)}")
             if "Service unavailable from a restricted location" in str(e):
-                logger.error("Binance API blocked due to restricted location. Consider using a non-US server or proxy.")
+                logger.error("Binance API blocked due to restricted location. Use a non-US server or proxy.")
         finally:
             if self.twm:
                 self.twm.stop()
@@ -95,9 +100,7 @@ class LongOnlyTrader:
             start_time = pd.to_datetime(msg["k"]["t"], unit="ms")
             first = float(msg["k"]["o"])
             high = float(msg["k"]["h"])
-            low = float
-
-(msg["k"]["l"])
+            low = float(msg["k"]["l"])
             close = float(msg["k"]["c"])
             volume = float(msg["k"]["v"])
             complete = msg["k"]["x"]
@@ -190,20 +193,23 @@ symbol = "BTCUSDT"
 bar_length = "1m"
 return_thresh = 0
 volume_thresh = [-3, 3]
-units = 0.00011
+units = 0.01
 position = 0
 
 # Instantiate and start trading
 async def main():
-    trader = LongOnlyTrader(
-        symbol=symbol,
-        bar_length=bar_length,
-        return_thresh=return_thresh,
-        volume_thresh=volume_thresh,
-        units=units,
-        position=position
-    )
-    await trader.start_trading(historical_days=1/7)
+    try:
+        trader = LongOnlyTrader(
+            symbol=symbol,
+            bar_length=bar_length,
+            return_thresh=return_thresh,
+            volume_thresh=volume_thresh,
+            units=units,
+            position=position
+        )
+        await trader.start_trading(historical_days=1/7)
+    except Exception as e:
+        logger.error(f"Error in main: {str(e)}")
 
 if __name__ == "__main__":
     asyncio.run(main())
