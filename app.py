@@ -13,8 +13,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # Initialize Binance client (replace with your API key and secret)
-api_key = os.getenv("BINANCE_API_KEY", "your_api_key")  # Use environment variables for security
-secret_key = os.getenv("BINANCE_SECRET_KEY", "your_secret_key")
+api_key = os.getenv("BINANCE_API_KEY", "api_key")  # Use environment variables for security
+secret_key = os.getenv("BINANCE_SECRET_KEY", "secret_key")
 client = Client(api_key=api_key, api_secret=secret_key, tld="us", testnet=False) #True)
 
 class LongOnlyTrader:
