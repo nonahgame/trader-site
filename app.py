@@ -64,7 +64,7 @@ GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
 BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "BINANCE_API_KEY")
 BINANCE_SECRET_KEY = os.getenv("BINANCE_SECRET_KEY", "BINANCE_SECRET_KEY")
-TRADE_VOLUME = float(os.getenv("TRADE_VOLUME", 0.001))
+TRADE_VOLUME = float(os.getenv("TRADE_VOLUME", 0.00011))
 PROXY_HTTP = os.getenv("PROXY_HTTP", "http://102.214.216.233:80")  # Optional proxy
 PROXY_HTTPS = os.getenv("PROXY_HTTPS", "http://169.239.223.79:9999")  # Optional proxy
 
