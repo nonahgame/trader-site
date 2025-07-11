@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # Initialize Binance client with environment variables
-api_key = os.getenv("BINANCE_API_KEY", "api_key")  # Replace with actual key for testing
+api_key = os.getenv("BINANCE_API_KEY", "api_key")  # Replace with actual key for local testing
 secret_key = os.getenv("BINANCE_SECRET_KEY", "secret_key")
 try:
     client = Client(api_key=api_key, api_secret=secret_key, tld="us", testnet=False)
@@ -22,7 +22,7 @@ except Exception as e:
     logger.error(f"Failed to initialize Binance client: {str(e)}")
     raise
 
-class app:     #  LongOnlyTrader
+class app:
     def __init__(self, symbol, bar_length, return_thresh, volume_thresh, units, position=0):
         self.symbol = symbol
         self.bar_length = bar_length
@@ -54,7 +54,7 @@ class app:     #  LongOnlyTrader
                 )
                 # Keep the event loop running
                 while True:
-                    if datetime.now(dt.UTC) >= datetime(2025, 7, 11, 23, 52):
+                    if datetime.now(dt.UTC) >= datetime(2025, 7, 11, 23, 36):  # Updated to match your timezone (WAT = UTC+1)
                         logger.info("Trading session ended due to time limit")
                         break
                     await asyncio.sleep(1)  # Prevent tight loop
@@ -105,7 +105,7 @@ class app:     #  LongOnlyTrader
             volume = float(msg["k"]["v"])
             complete = msg["k"]["x"]
 
-            if event_time >= datetime(2025, 7, 11, 15, 52):
+            if event_time >= datetime(2025, 7, 11, 17, 36):  # Updated to match WAT (UTC+1)
                 if self.twm:
                     self.twm.stop()
                     logger.info("WebSocket stopped due to time limit")
@@ -198,7 +198,8 @@ position = 0
 
 # Instantiate and start trading
 async def main():
-    try:      #LongOnlyTrader(
+    try:
+        logger.info("Starting trading bot")
         trader = app(
             symbol=symbol,
             bar_length=bar_length,
