@@ -22,7 +22,7 @@ except Exception as e:
     logger.error(f"Failed to initialize Binance client: {str(e)}")
     raise
 
-class LongOnlyTrader:
+class app:     #  LongOnlyTrader
     def __init__(self, symbol, bar_length, return_thresh, volume_thresh, units, position=0):
         self.symbol = symbol
         self.bar_length = bar_length
@@ -198,8 +198,8 @@ position = 0
 
 # Instantiate and start trading
 async def main():
-    try:
-        trader = LongOnlyTrader(
+    try:      #LongOnlyTrader(
+        trader = app(
             symbol=symbol,
             bar_length=bar_length,
             return_thresh=return_thresh,
