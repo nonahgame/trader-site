@@ -17,7 +17,7 @@ from flask import Flask, render_template, jsonify
 import atexit
 import asyncio
 
-# Custom formatter for US/Eastern timezone
+# Custom formatter for US/Eastern timezone (retained for consistency)
 class EasternFormatter(logging.Formatter):
     def __init__(self, fmt=None, datefmt=None, tz=pytz.timezone('US/Eastern')):
         super().__init__(fmt, datefmt)
@@ -62,9 +62,11 @@ STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 270000))
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
-BINANCEUS_API_KEY = os.getenv("BINANCEUS_API_KEY", "BINANCEUS_API_KEY")
-BINANCEUS_SECRET_KEY = os.getenv("BINANCEUS_SECRET_KEY", "BINANCEUS_SECRET_KEY")
-TRADE_VOLUME = float(os.getenv("TRADE_VOLUME", 0.00011))
+BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "BINANCE_API_KEY")
+BINANCE_SECRET_KEY = os.getenv("BINANCE_SECRET_KEY", "BINANCE_SECRET_KEY")
+TRADE_VOLUME = float(os.getenv("TRADE_VOLUME", 0.001))
+PROXY_HTTP = os.getenv("PROXY_HTTP", "http://102.214.216.233:80")  # Optional proxy
+PROXY_HTTPS = os.getenv("PROXY_HTTPS", "http://169.239.223.79:9999")  # Optional proxy
 
 # GitHub API setup
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
@@ -85,10 +87,11 @@ bot_active = True
 bot_lock = threading.Lock()
 db_lock = threading.Lock()
 conn = None
-exchange = ccxt.binanceus({
-    'apiKey': BINANCEUS_API_KEY,
-    'secret': BINANCEUS_SECRET_KEY,
+exchange = ccxt.binance({
+    'apiKey': BINANCE_API_KEY,
+    'secret': BINANCE_SECRET_KEY,
     'enableRateLimit': True,
+    'proxies': {'http': PROXY_HTTP, 'https': PROXY_HTTPS} if PROXY_HTTP and PROXY_HTTPS else {}
 })
 position = None
 buy_price = None
@@ -364,12 +367,12 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         elif close_price < open_price:
             logger.info(f"Downward price movement detected: open={open_price:.2f}, close={close_price:.2f}")
             action = "sell"
-        elif kdj_j > 80.0:  # Relaxed from 123.00 for testing
+        elif kdj_j > 80.0:
             logger.info(f"Overbought KDJ J detected: kdj_j={kdj_j:.2f}")
             action = "sell"
 
     if action == "hold" and position is None:
-        if kdj_j < 20.0 or (close_price > open_price and ema1 > ema2):  # Relaxed from -4.00 for testing
+        if kdj_j < 20.0 or (close_price > open_price and ema1 > ema2):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
 
@@ -701,7 +704,7 @@ async def trading_bot():
                 if bot_active and recommended_action == "buy" and position is None:
                     try:
                         usdt_free, btc_free = await check_balance()
-                        min_notional = 10  # Binance.US minimum order ~$10
+                        min_notional = 10  # Binance minimum order ~$10
                         if usdt_free >= current_price * TRADE_VOLUME * 1.001:
                             order = await exchange.create_market_buy_order(SYMBOL, TRADE_VOLUME)
                             position = "long"
