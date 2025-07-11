@@ -193,7 +193,7 @@ symbol = "BTCUSDT"
 bar_length = "1m"
 return_thresh = 0
 volume_thresh = [-3, 3]
-units = 0.01
+units = 0.00011
 position = 0
 
 # Instantiate and start trading
