@@ -334,7 +334,7 @@ def add_technical_indicators(df):
         logger.error(f"Error calculating indicators: {e}")
         return df
 
-# AI decision logic
+# AI decision logic (simplified for testing)
 def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAKE_PROFIT_PERCENT, position=None, buy_price=None):
     if df.empty or len(df) < 1:
         logger.warning("DataFrame is empty or too small for decision.")
@@ -364,12 +364,12 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         elif close_price < open_price:
             logger.info(f"Downward price movement detected: open={open_price:.2f}, close={close_price:.2f}")
             action = "sell"
-        elif kdj_j > 123.00:
+        elif kdj_j > 80.0:  # Relaxed from 123.00 for testing
             logger.info(f"Overbought KDJ J detected: kdj_j={kdj_j:.2f}")
             action = "sell"
 
     if action == "hold" and position is None:
-        if kdj_j < -4.00 or (close_price > open_price and ema1 > ema2) or kdj_j > kdj_d:
+        if kdj_j < 20.0 or (close_price > open_price and ema1 > ema2):  # Relaxed from -4.00 for testing
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
 
@@ -456,7 +456,7 @@ def get_next_timeframe_boundary(current_time, timeframe_seconds):
     intervals_passed = current_seconds // timeframe_seconds
     next_boundary = (intervals_passed + 1) * timeframe_seconds
     seconds_until_boundary = next_boundary - current_seconds
-    return max(seconds_until_boundary, 1)  # Ensure at least 1s sleep to avoid tight loops
+    return max(seconds_until_boundary, 1)
 
 # Trading bot with live orders
 async def trading_bot():
@@ -579,7 +579,7 @@ async def trading_bot():
                     position = None
                     logger.info("Bot resumed after pause")
 
-            # Check balance before fetching price
+            # Check balance
             usdt_free, btc_free = await check_balance()
             logger.debug(f"Balance check: {usdt_free:.2f} USDT, {btc_free:.6f} BTC")
 
@@ -702,7 +702,7 @@ async def trading_bot():
                     try:
                         usdt_free, btc_free = await check_balance()
                         min_notional = 10  # Binance.US minimum order ~$10
-                        if usdt_free >= current_price * TRADE_VOLUME * 1.001:  # Account for fees
+                        if usdt_free >= current_price * TRADE_VOLUME * 1.001:
                             order = await exchange.create_market_buy_order(SYMBOL, TRADE_VOLUME)
                             position = "long"
                             buy_price = current_price
@@ -743,12 +743,12 @@ async def trading_bot():
 
                 signal = create_signal(action, current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, msg)
                 store_signal(signal)
-                logger.debug(f"Generated signal: action={signal['action']}, time={signal['time']}, price={signal['price']:.2f}")
+                logger.debug(f"Generated and stored signal: action={signal['action']}, time={signal['time']}, price={signal['price']:.2f}")
                 if bot_active and action != "hold" and bot:
                     threading.Thread(target=send_telegram_message, args=(signal, BOT_TOKEN, CHAT_ID), daemon=True).start()
 
-            if bot_active and action != "hold":
-                upload_to_github(db_path, 'r_bot.db')
+            # Store all signals to ensure database updates every minute
+            upload_to_github(db_path, 'r_bot.db')
             
             # Sleep until the next timeframe boundary
             loop_end_time = datetime.now(EASTERN_TZ)
@@ -767,7 +767,7 @@ async def trading_bot():
 # Helper functions
 def create_signal(action, current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, msg):
     latest = df.iloc[-1]
-    return {
+    signal = {
         'time': datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S"),
         'action': action,
         'symbol': SYMBOL,
@@ -792,6 +792,8 @@ def create_signal(action, current_price, latest_data, df, profit, total_profit, 
         'message': msg,
         'timeframe': TIMEFRAME
     }
+    logger.debug(f"Created signal: {signal}")
+    return signal
 
 def store_signal(signal):
     global conn
@@ -822,10 +824,10 @@ def store_signal(signal):
             ))
             conn.commit()
             elapsed = time.time() - start_time
-            logger.debug(f"Signal stored successfully: action={signal['action']}, time={signal['time']}, db_write_time={elapsed:.3f}s")
+            logger.info(f"Signal stored successfully: action={signal['action']}, time={signal['time']}, db_write_time={elapsed:.3f}s")
         except Exception as e:
             elapsed = time.time() - start_time
-            logger.error(f"Error storing signal after {elapsed:.3f}s: {e}")
+            logger.error(f"Error storing signal after {elapsed:.3f}s: {e}", exc_info=True)
             conn = None
 
 def get_performance():
@@ -949,7 +951,9 @@ def index():
             elapsed = time.time() - start_time
             logger.error(f"Error rendering index.html after {elapsed:.3f}s: {e}")
             conn = None
-            return "<h1>Error</h1><p>Failed to load page. Please try again later.</p>", 500
+            return render_template('index.html', signal=None, status=status, timeframe=TIMEFRAME,
+                                  trades=[], stop_time=stop_time.strftime("%Y-%m-%d %H:%M:%S"),
+                                  current_time=datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %H:%M:%S"))
 
 @app.route('/status')
 def status():
