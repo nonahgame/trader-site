@@ -62,6 +62,8 @@ GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
 BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "BINANCE_API_KEY")
 BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET", "BINANCE_API_SECRET")
+PROXY_HTTP = os.getenv("PROXY_HTTP", "http://102.214.216.233:80")  # Optional proxy
+PROXY_HTTPS = os.getenv("PROXY_HTTPS", "http://169.239.223.79:9999")  # Optional proxy
 
 # GitHub API setup
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
