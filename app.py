@@ -181,7 +181,7 @@ def keep_alive():
             time.sleep(300)
         except Exception as e:
             logger.error(f"Keep-alive error: {e}")
-            time.sleep().
+            time.sleep(60)
 
 # SQLite database setup
 def setup_database():
