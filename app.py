@@ -75,10 +75,10 @@ HEADERS = {
 }
 
 # Database path
-#db_path = 'r_bot.db'
+db_path = 'r_bot.db'
 
 # Database path
-db_path = '/app/r_bot.db'  # Use /app for Render.com's filesystem
+#db_path = '/app/r_bot.db'  # Use /app for Render.com's filesystem
 
 # Timezone setup
 WAT_TZ = pytz.timezone('Africa/Lagos')
