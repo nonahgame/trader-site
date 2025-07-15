@@ -89,11 +89,7 @@ bot_active = True
 bot_lock = threading.Lock()
 db_lock = threading.Lock()
 conn = None
-exchange = ccxt.poloniex({
-    'apiKey': POLONIEX_API_KEY,
-    'secret': POLONIEX_API_SECRET,
-    'enableRateLimit': True,
-})  # Use Poloniex for price data
+exchange = ccxt.kraken()
 poloniex = ccxt.poloniex({
     'apiKey': POLONIEX_API_KEY,
     'secret': POLONIEX_API_SECRET,
