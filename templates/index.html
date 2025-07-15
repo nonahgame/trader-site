@@ -123,6 +123,7 @@
         <ul>
             <li>Time: {{ signal.time }}</li>
             <li>Timeframe: {{ signal.timeframe }}</li>
+            <li>Strategy: {{ signal.strategy }}</li>
             <li>Message: {{ signal.message }}</li>
             <li>Price: {{ signal.price | round(2) }}</li>
             <li>Open: {{ "%.2f"|format(signal.open_price) }}</li>
@@ -149,6 +150,9 @@
             {% if signal.action == "sell" and signal.return_profit %}
             <li>Return Profit: {{ signal.return_profit | round(2) }}</li>
             {% endif %}
+            {% if signal.order_id %}
+            <li>Order ID: {{ signal.order_id }}</li>
+            {% endif %}
         </ul>
         {% else %}
         <p>No signal available.</p>
@@ -161,24 +165,28 @@
             <tr>
                 <th>Time</th>
                 <th>Action</th>
+                <th>Strategy</th>
                 <th>Price</th>
                 <th>% Change</th>
                 <th>Profit</th>
                 <th>Total Profit</th>
                 <th>Return Profit</th>
                 <th>Total Return Profit</th>
+                <th>Order ID</th>
                 <th>Message</th>
             </tr>
             {% for trade in trades %}
             <tr>
                 <td>{{ trade.time }}</td>
                 <td class="{% if trade.action == 'buy' %}action-buy{% elif trade.action == 'sell' %}action-sell{% endif %}">{{ trade.action }}</td>
+                <td>{{ trade.strategy }}</td>
                 <td>{{ trade.price | round(2) }}</td>
                 <td class="{% if trade.percent_change|float < 0 %}negative{% else %}non-negative{% endif %}">{{ trade.percent_change|float | round(2) }}%</td>
                 <td class="{% if trade.profit is not none and trade.profit|float < 0 %}negative{% else %}non-negative{% endif %}">{{ trade.profit | round(2) if trade.profit is not none else "N/A" }}</td>
                 <td class="{% if trade.total_profit is not none and trade.total_profit|float < 0 %}negative{% else %}non-negative{% endif %}">{{ trade.total_profit | round(2) if trade.total_profit is not none else "N/A" }}</td>
                 <td class="{% if trade.return_profit is not none and trade.return_profit|float < 0 %}negative{% else %}non-negative{% endif %}">{{ trade.return_profit | round(2) if trade.return_profit is not none else "N/A" }}</td>
                 <td class="{% if trade.total_return_profit is not none and trade.total_return_profit|float < 0 %}negative{% else %}non-negative{% endif %}">{{ trade.total_return_profit | round(2) if trade.total_return_profit is not none else "N/A" }}</td>
+                <td>{{ trade.order_id if trade.order_id else "N/A" }}</td>
                 <td>
                     KDJ J: <span class="{% if trade.j|float < 0 %}kdj-negative{% elif trade.j|float > 65 %}kdj-overbought{% else %}kdj-neutral{% endif %}">{{ trade.j | round(2) }}</span>,
                     RSI: <span class="{% if trade.rsi|float < 15 %}rsi-oversold{% elif trade.rsi|float > 60 %}rsi-overbought{% else %}rsi-neutral{% endif %}">{{ trade.rsi | round(2) }}</span>,
