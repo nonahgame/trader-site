@@ -51,7 +51,7 @@ app = Flask(__name__)
 # Environment variables
 BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID")
-SYMBOL = os.getenv("SYMBOL", "BTC/USDT")
+SYMBOL = os.getenv("SYMBOL", "BTC_USDT")  # Poloniex uses underscore (BTC_USDT)
 TIMEFRAME = os.getenv("TIMEFRAME", "5m")
 TIMEFRAMES = int(os.getenv("INTER_SECONDS", "300"))
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -2.0))
@@ -60,8 +60,10 @@ STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 270000))
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
-BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "BINANCE_API_KEY")
-BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET", "BINANCE_API_SECRET")
+POLONIEX_API_KEY = os.getenv("POLONIEX_API_KEY", "POLONIEX_API_KEY")
+POLONIEX_API_SECRET = os.getenv("POLONIEX_API_SECRET", "POLONIEX_API_SECRET")
+#PROXY_HTTP = os.getenv("PROXY_HTTP", None)  # Optional proxy, disabled by default
+
 PROXY_HTTP = os.getenv("PROXY_HTTP", "http://105.119.25.158:5000")  # Optional proxy
 #PROXY_HTTPS = os.getenv("PROXY_HTTPS", "http://169.239.223.79:9999")  # Optional proxy
 
@@ -73,23 +75,30 @@ HEADERS = {
 }
 
 # Database path
-db_path = 'r_bot.db'
+#db_path = 'r_bot.db'
+
+# Database path
+db_path = '/app/r_bot.db'  # Use /app for Render.com's filesystem
 
 # Timezone setup
 WAT_TZ = pytz.timezone('Africa/Lagos')
-
+# Amended
 # Global state
 bot_thread = None
 bot_active = True
 bot_lock = threading.Lock()
 db_lock = threading.Lock()
 conn = None
-exchange = ccxt.kraken()
-binance = ccxt.binance({
-    'apiKey': BINANCE_API_KEY,
-    'secret': BINANCE_API_SECRET,
+exchange = ccxt.poloniex({
+    'apiKey': POLONIEX_API_KEY,
+    'secret': POLONIEX_API_SECRET,
     'enableRateLimit': True,
-})
+})  # Use Poloniex for price data
+poloniex = ccxt.poloniex({
+    'apiKey': POLONIEX_API_KEY,
+    'secret': POLONIEX_API_SECRET,
+    'enableRateLimit': True,
+})  # Use Poloniex for live trading
 position = None
 buy_price = None
 total_profit = 0
@@ -171,13 +180,13 @@ def download_from_github(file_name, destination_path):
     except Exception as e:
         logger.error(f"Error downloading {file_name} from GitHub: {e}", exc_info=True)
         return False
-
+# Amended
 # Keep-alive mechanism
 def keep_alive():
     while True:
         try:
-            requests.get('https://www.google.com')
-            logger.debug("Keep-alive ping sent")
+            requests.get('https://api.poloniex.com/markets/BTC_USDT/price')  # Poloniex-specific keep-alive
+            logger.debug("Keep-alive ping sent to Poloniex")
             time.sleep(300)
         except Exception as e:
             logger.error(f"Keep-alive error: {e}")
@@ -279,7 +288,7 @@ def setup_database():
 logger.info("Initializing database in main thread")
 if not setup_database():
     logger.error("Failed to initialize database in main thread. Flask routes may fail.")
-
+# Amended
 # Fetch price data
 def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, retries=3, delay=5):
     global last_valid_price
@@ -300,6 +309,9 @@ def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, r
             last_valid_price = selected_data
             logger.debug(f"Fetched price data: {selected_data.to_dict()}")
             return selected_data
+        except ccxt.RateLimitExceeded:
+            logger.warning(f"Rate limit exceeded for {symbol}. Waiting {delay}s before retry.")
+            time.sleep(delay)
         except Exception as e:
             logger.error(f"Error fetching price (attempt {attempt + 1}/{retries}): {e}")
             if attempt < retries - 1:
@@ -406,8 +418,8 @@ def handle_second_strategy(action, current_price, primary_profit):
             tracking_enabled = False
         msg = " (Paused Sell2)"
     return return_profit, msg
-
-# Third strategy logic (live trading on Binance)
+# Amended
+# Third strategy logic (live trading on Poloniex)
 def third_strategy(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAKE_PROFIT_PERCENT, position=None, buy_price=None):
     global live_position, live_buy_price, live_total_profit
     if df.empty or len(df) < 1:
@@ -457,22 +469,29 @@ def third_strategy(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=
 
     if action in ["buy", "sell"] and bot_active:
         try:
-            quantity = 0.00011  # Fixed quantity for BTC/USDT
+            quantity = 0.0001  # Adjusted for Poloniex minimum order size (~$10 for BTC_USDT)
+            markets = poloniex.load_markets()
+            if SYMBOL not in markets:
+                logger.error(f"Symbol {SYMBOL} not available on Poloniex.")
+                return "hold", None, None, None
             if action == "buy":
-                order = binance.create_market_buy_order(SYMBOL, quantity)
+                order = poloniex.create_market_buy_order(SYMBOL, quantity)
                 order_id = str(order['id'])
                 live_position = "long"
                 live_buy_price = close_price
                 logger.info(f"Placed live buy order: {order_id}, quantity={quantity}, price={close_price:.2f}")
             elif action == "sell" and live_position == "long":
-                order = binance.create_market_sell_order(SYMBOL, quantity)
+                order = poloniex.create_market_sell_order(SYMBOL, quantity)
                 order_id = str(order['id'])
                 profit = close_price - live_buy_price
                 live_total_profit += profit
                 live_position = None
                 logger.info(f"Placed live sell order: {order_id}, quantity={quantity}, price={close_price:.2f}, profit={profit:.2f}")
+        except ccxt.RateLimitExceeded:
+            logger.warning("Poloniex rate limit exceeded. Pausing before retry.")
+            time.sleep(10)
         except Exception as e:
-            logger.error(f"Error placing live order: {e}")
+            logger.error(f"Error placing live order on Poloniex: {e}")
             action = "hold"
             order_id = None
 
@@ -524,7 +543,7 @@ def get_next_timeframe_boundary(current_time, timeframe_seconds):
     next_boundary = (intervals_passed + 1) * timeframe_seconds
     seconds_until_boundary = next_boundary - current_seconds
     return seconds_until_boundary
-
+# Amended
 # Trading bot
 def trading_bot():
     global bot_active, position, buy_price, total_profit, pause_duration, pause_start, conn, live_position, live_buy_price, live_total_profit
@@ -586,6 +605,9 @@ def trading_bot():
             df = add_technical_indicators(df)
             logger.info(f"Initial df shape: {df.shape}")
             break
+        except ccxt.RateLimitExceeded:
+            logger.warning(f"Poloniex rate limit exceeded fetching historical data. Waiting 5s before retry.")
+            time.sleep(5)
         except Exception as e:
             logger.error(f"Error fetching historical data (attempt {attempt + 1}/3): {e}")
             if attempt < 2:
@@ -594,7 +616,7 @@ def trading_bot():
                 logger.error(f"Failed to fetch historical data for {SYMBOL}")
                 return
 
-    timeframe_seconds = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '1d': 86400}.get(TIMEFRAME, 60)
+    timeframe_seconds = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '4h': 14400, '1d': 86400}.get(TIMEFRAME, 300)  # Poloniex supported timeframes
     
     current_time = datetime.now(WAT_TZ)
     seconds_to_wait = get_next_timeframe_boundary(current_time, timeframe_seconds)
@@ -1074,7 +1096,6 @@ keep_alive_thread.start()
 logger.info("Keep-alive thread started")
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 5000))
+    port = int(os.getenv("PORT", 5000))  # Render.com sets PORT
     logger.info(f"Starting Flask server on port {port}")
-    asyncio.run(main())
     app.run(host='0.0.0.0', port=port, debug=False)
