@@ -456,6 +456,7 @@ def third_strategy(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=
             logger.info(f"Live buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
 
+    # Prevent invalid actions
     if action == "buy" and position is not None:
         logger.debug("Prevented consecutive live buy order.")
         action = "hold"
@@ -465,13 +466,20 @@ def third_strategy(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=
 
     if action in ["buy", "sell"] and bot_active:
         try:
-            quantity = 0.00011  # Adjusted for Poloniex minimum order size (~$10 for BTC_USDT)
+            # Minimum order size for Poloniex (~$10 in USDT)
+            quantity = 0.000105  # ~$12 at BTC price of $120,000
             markets = poloniex.load_markets()
             if SYMBOL not in markets:
-                logger.error(f"Symbol {SYMBOL} not available on Poloniex.")
+                logger.error(f"Symbol {SYMBOL} not available on Poloniex. Available markets: {list(markets.keys())[:10]}...")
                 return "hold", None, None, None
+
             if action == "buy":
-                order = poloniex.create_market_buy_order(SYMBOL, quantity)
+                # Fetch current price to calculate cost
+                if pd.isna(close_price):
+                    logger.error("Cannot place buy order: close_price is NaN")
+                    return "hold", None, None, None
+                # Use close_price for market buy order
+                order = poloniex.create_market_buy_order(SYMBOL, quantity, {'price': close_price})
                 order_id = str(order['id'])
                 live_position = "long"
                 live_buy_price = close_price
