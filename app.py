@@ -435,26 +435,11 @@ def third_strategy(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=
     action = "hold"
     order_id = None
 
-    if position == "long" and buy_price is not None:
-        stop_loss = buy_price * (1 + stop_loss_percent / 100)
-        take_profit = buy_price * (1 + take_profit_percent / 100)
-        if close_price <= stop_loss:
-            logger.info("Live stop-loss triggered.")
-            action = "sell"
-        elif close_price >= take_profit:
-            logger.info("Live take-profit triggered.")
-            action = "sell"
-        elif close_price < open_price:
-            logger.info(f"Live downward price movement detected: open={open_price:.2f}, close={close_price:.2f}")
-            action = "sell"
-        elif kdj_j > 123.00:
-            logger.info(f"Live overbought KDJ J detected: kdj_j={kdj_j:.2f}")
-            action = "sell"
+    # AI decision logic (aligned with primary strategy)
+    action, stop_loss, take_profit = ai_decision(df, stop_loss_percent, take_profit_percent, position, buy_price)
 
-    if action == "hold" and position is None:
-        if (kdj_j < -4.00 and ema1 > ema2 or kdj_j > kdj_d) or (close_price > open_price and ema1 > ema2 or kdj_j > kdj_d):
-            logger.info(f"Live buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
-            action = "buy"
+    # Log the decision for debugging
+    logger.debug(f"Third strategy AI decision: action={action}, kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
 
     # Prevent invalid actions
     if action == "buy" and position is not None:
@@ -467,7 +452,7 @@ def third_strategy(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=
     if action in ["buy", "sell"] and bot_active:
         try:
             # Minimum order size for Poloniex (~$10 in USDT)
-            quantity = 0.000105  # ~$12 at BTC price of $120,000
+            quantity = 0.0001  # ~$12 at BTC price of $120,000
             markets = poloniex.load_markets()
             if SYMBOL not in markets:
                 logger.error(f"Symbol {SYMBOL} not available on Poloniex. Available markets: {list(markets.keys())[:10]}...")
