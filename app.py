@@ -467,7 +467,7 @@ def third_strategy(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=
     if action in ["buy", "sell"] and bot_active:
         try:
             # Minimum order size for Poloniex (~$10 in USDT)
-            quantity = 0.000105  # ~$12 at BTC price of $120,000
+            quantity = 0.00011  # ~$12 at BTC price of $120,000
             markets = poloniex.load_markets()
             if SYMBOL not in markets:
                 logger.error(f"Symbol {SYMBOL} not available on Poloniex. Available markets: {list(markets.keys())[:10]}...")
@@ -643,7 +643,7 @@ def trading_bot():
                 if live_position == "long":
                     latest_data = get_simulated_price()
                     if not pd.isna(latest_data['Close']):
-                        order = binance.create_market_sell_order(SYMBOL, 0.001)
+                        order = poloniex.create_market_sell_order(SYMBOL, 0.00011)
                         order_id = str(order['id'])
                         profit = latest_data['Close'] - live_buy_price
                         live_total_profit += profit
@@ -705,7 +705,7 @@ def trading_bot():
                                             send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
                                         position = None
                                     if bot_active and live_position == "long":
-                                        order = binance.create_market_sell_order(SYMBOL, 0.001)
+                                        order = poloniex.create_market_sell_order(SYMBOL, 0.00011)
                                         order_id = str(order['id'])
                                         profit = current_price - live_buy_price
                                         live_total_profit += profit
@@ -732,7 +732,7 @@ def trading_bot():
                                             send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
                                         position = None
                                     if live_position == "long":
-                                        order = binance.create_market_sell_order(SYMBOL, 0.001)
+                                        order = poloniex.create_market_sell_order(SYMBOL, 0.00011)
                                         order_id = str(order['id'])
                                         profit = current_price - live_buy_price
                                         live_total_profit += profit
