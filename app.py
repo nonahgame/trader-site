@@ -465,7 +465,7 @@ def third_strategy(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=
 
     if action in ["buy", "sell"] and bot_active:
         try:
-            quantity = 0.00012  # Adjusted for Poloniex minimum order size (~$10 for BTC_USDT)
+            quantity = 0.00011  # Adjusted for Poloniex minimum order size (~$10 for BTC_USDT)
             markets = poloniex.load_markets()
             if SYMBOL not in markets:
                 logger.error(f"Symbol {SYMBOL} not available on Poloniex.")
