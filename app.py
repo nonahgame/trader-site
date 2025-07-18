@@ -732,7 +732,7 @@ def trading_bot():
                                             send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
                                         position = None
                                     if live_position == "long":
-                                        order = poloniex.create_market_sell_order(SYMBOL, 0.00011)
+                                        order = binance.create_market_sell_order(SYMBOL, 0.00011)
                                         order_id = str(order['id'])
                                         profit = current_price - live_buy_price
                                         live_total_profit += profit
