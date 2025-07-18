@@ -643,7 +643,7 @@ def trading_bot():
                 if live_position == "long":
                     latest_data = get_simulated_price()
                     if not pd.isna(latest_data['Close']):
-                        order = kraken.create_market_sell_order(SYMBOL, 0.00011)
+                        order = binance.create_market_sell_order(SYMBOL, 0.00011)
                         order_id = str(order['id'])
                         profit = latest_data['Close'] - live_buy_price
                         live_total_profit += profit
