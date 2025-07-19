@@ -62,10 +62,7 @@ GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
 POLONIEX_API_KEY = os.getenv("POLONIEX_API_KEY", "POLONIEX_API_KEY")
 POLONIEX_API_SECRET = os.getenv("POLONIEX_API_SECRET", "POLONIEX_API_SECRET")
-#PROXY_HTTP = os.getenv("PROXY_HTTP", None)  # Optional proxy, disabled by default
-
 PROXY_HTTP = os.getenv("PROXY_HTTP", "http://105.119.25.158:5000")  # Optional proxy
-#PROXY_HTTPS = os.getenv("PROXY_HTTPS", "http://169.239.223.79:9999")  # Optional proxy
 
 # GitHub API setup
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
@@ -77,12 +74,9 @@ HEADERS = {
 # Database path
 db_path = 'r_bot.db'
 
-# Database path
-#db_path = '/app/r_bot.db'  # Use /app for Render.com's filesystem
-
 # Timezone setup
 WAT_TZ = pytz.timezone('Africa/Lagos')
-# Amended
+
 # Global state
 bot_thread = None
 bot_active = True
@@ -176,7 +170,7 @@ def download_from_github(file_name, destination_path):
     except Exception as e:
         logger.error(f"Error downloading {file_name} from GitHub: {e}", exc_info=True)
         return False
-# Amended
+
 # Keep-alive mechanism
 def keep_alive():
     while True:
@@ -284,7 +278,7 @@ def setup_database():
 logger.info("Initializing database in main thread")
 if not setup_database():
     logger.error("Failed to initialize database in main thread. Flask routes may fail.")
-# Amended
+
 # Fetch price data
 def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, retries=3, delay=5):
     global last_valid_price
@@ -414,7 +408,7 @@ def handle_second_strategy(action, current_price, primary_profit):
             tracking_enabled = False
         msg = " (Paused Sell2)"
     return return_profit, msg
-# Amended
+
 # Third strategy logic (live trading on Poloniex)
 def third_strategy(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAKE_PROFIT_PERCENT, position=None, buy_price=None):
     global live_position, live_buy_price, live_total_profit
@@ -465,24 +459,28 @@ def third_strategy(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=
 
     if action in ["buy", "sell"] and bot_active:
         try:
-            quantity = 0.00012  # Adjusted for Poloniex minimum order size (~$10 for BTC_USDT)
+            # Desired amount in USDT (quote currency) for the trade
+            desired_cost = 10.7  # ~$10, adjust based on Poloniex minimum order size
             markets = poloniex.load_markets()
             if SYMBOL not in markets:
                 logger.error(f"Symbol {SYMBOL} not available on Poloniex.")
                 return "hold", None, None, None
             if action == "buy":
-                order = poloniex.create_market_buy_order(SYMBOL, quantity)
+                # Calculate the amount in USDT (quote currency)
+                cost = desired_cost  # Use desired_cost directly as the amount in USDT
+                order = poloniex.create_market_buy_order(SYMBOL, cost, params={'createMarketBuyOrderRequiresPrice': False})
                 order_id = str(order['id'])
                 live_position = "long"
                 live_buy_price = close_price
-                logger.info(f"Placed live buy order: {order_id}, quantity={quantity}, price={close_price:.2f}")
+                logger.info(f"Placed live buy order: {order_id}, cost={cost:.2f} USDT, price={close_price:.2f}")
             elif action == "sell" and live_position == "long":
+                quantity = desired_cost / live_buy_price  # Approximate quantity based on buy price
                 order = poloniex.create_market_sell_order(SYMBOL, quantity)
                 order_id = str(order['id'])
                 profit = close_price - live_buy_price
                 live_total_profit += profit
                 live_position = None
-                logger.info(f"Placed live sell order: {order_id}, quantity={quantity}, price={close_price:.2f}, profit={profit:.2f}")
+                logger.info(f"Placed live sell order: {order_id}, quantity={quantity:.8f}, price={close_price:.2f}, profit={profit:.2f}")
         except ccxt.RateLimitExceeded:
             logger.warning("Poloniex rate limit exceeded. Pausing before retry.")
             time.sleep(10)
@@ -539,7 +537,7 @@ def get_next_timeframe_boundary(current_time, timeframe_seconds):
     next_boundary = (intervals_passed + 1) * timeframe_seconds
     seconds_until_boundary = next_boundary - current_seconds
     return seconds_until_boundary
-# Amended
+
 # Trading bot
 def trading_bot():
     global bot_active, position, buy_price, total_profit, pause_duration, pause_start, conn, live_position, live_buy_price, live_total_profit
@@ -638,7 +636,7 @@ def trading_bot():
                 if live_position == "long":
                     latest_data = get_simulated_price()
                     if not pd.isna(latest_data['Close']):
-                        order = binance.create_market_sell_order(SYMBOL, 0.001)
+                        order = poloniex.create_market_sell_order(SYMBOL, 0.001)
                         order_id = str(order['id'])
                         profit = latest_data['Close'] - live_buy_price
                         live_total_profit += profit
@@ -700,7 +698,7 @@ def trading_bot():
                                             send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
                                         position = None
                                     if bot_active and live_position == "long":
-                                        order = binance.create_market_sell_order(SYMBOL, 0.001)
+                                        order = poloniex.create_market_sell_order(SYMBOL, 0.001)
                                         order_id = str(order['id'])
                                         profit = current_price - live_buy_price
                                         live_total_profit += profit
@@ -727,7 +725,7 @@ def trading_bot():
                                             send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
                                         position = None
                                     if live_position == "long":
-                                        order = binance.create_market_sell_order(SYMBOL, 0.001)
+                                        order = poloniex.create_market_sell_order(SYMBOL, 0.001)
                                         order_id = str(order['id'])
                                         profit = current_price - live_buy_price
                                         live_total_profit += profit
