@@ -62,7 +62,7 @@ GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
 POLONIEX_API_KEY = os.getenv("POLONIEX_API_KEY", "POLONIEX_API_KEY")
 POLONIEX_API_SECRET = os.getenv("POLONIEX_API_SECRET", "POLONIEX_API_SECRET")
-#PROXY_HTTP = os.getenv("PROXY_HTTP", "http://149.34.244.151:5000")  # Optional proxy
+PROXY_HTTP = os.getenv("PROXY_HTTP", "http://105.119.24.7:5000")  # Optional proxy
 
 # GitHub API setup
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
