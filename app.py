@@ -51,7 +51,7 @@ app = Flask(__name__)
 # Environment variables
 BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID")
-SYMBOL = os.getenv("SYMBOL", "BTC_USDT")  # Poloniex uses underscore (BTC_USDT)
+SYMBOL = os.getenv("SYMBOL", "BTC/USDT")
 TIMEFRAME = os.getenv("TIMEFRAME", "5m")
 TIMEFRAMES = int(os.getenv("INTER_SECONDS", "300"))
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -2.0))
@@ -60,9 +60,10 @@ STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 270000))
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
-POLONIEX_API_KEY = os.getenv("POLONIEX_API_KEY", "POLONIEX_API_KEY")
-POLONIEX_API_SECRET = os.getenv("POLONIEX_API_SECRET", "POLONIEX_API_SECRET")
-PROXY_HTTP = os.getenv("PROXY_HTTP", "http://105.119.24.7:5000")  # Optional proxy
+BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "BINANCE_API_KEY")
+BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET", "BINANCE_API_SECRET")
+PROXY_HTTP = os.getenv("PROXY_HTTP", "http://149.34.244.151:5000")  # Optional proxy
+#PROXY_HTTPS = os.getenv("PROXY_HTTPS", "http://169.239.223.79:9999")  # Optional proxy
 
 # GitHub API setup
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
@@ -84,11 +85,11 @@ bot_lock = threading.Lock()
 db_lock = threading.Lock()
 conn = None
 exchange = ccxt.kraken()
-poloniex = ccxt.poloniex({
-    'apiKey': POLONIEX_API_KEY,
-    'secret': POLONIEX_API_SECRET,
+binance = ccxt.binance({
+    'apiKey': BINANCE_API_KEY,
+    'secret': BINANCE_API_SECRET,
     'enableRateLimit': True,
-})  # Use Poloniex for live trading
+})
 position = None
 buy_price = None
 total_profit = 0
@@ -175,8 +176,8 @@ def download_from_github(file_name, destination_path):
 def keep_alive():
     while True:
         try:
-            requests.get('https://api.poloniex.com/markets/BTC_USDT/price')  # Poloniex-specific keep-alive
-            logger.debug("Keep-alive ping sent to Poloniex")
+            requests.get('https://www.google.com')
+            logger.debug("Keep-alive ping sent")
             time.sleep(300)
         except Exception as e:
             logger.error(f"Keep-alive error: {e}")
@@ -299,9 +300,6 @@ def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, r
             last_valid_price = selected_data
             logger.debug(f"Fetched price data: {selected_data.to_dict()}")
             return selected_data
-        except ccxt.RateLimitExceeded:
-            logger.warning(f"Rate limit exceeded for {symbol}. Waiting {delay}s before retry.")
-            time.sleep(delay)
         except Exception as e:
             logger.error(f"Error fetching price (attempt {attempt + 1}/{retries}): {e}")
             if attempt < retries - 1:
@@ -409,7 +407,7 @@ def handle_second_strategy(action, current_price, primary_profit):
         msg = " (Paused Sell2)"
     return return_profit, msg
 
-# Third strategy logic (live trading on Poloniex)
+# Third strategy logic (live trading on Binance)
 def third_strategy(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAKE_PROFIT_PERCENT, position=None, buy_price=None):
     global live_position, live_buy_price, live_total_profit
     if df.empty or len(df) < 1:
@@ -459,33 +457,22 @@ def third_strategy(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=
 
     if action in ["buy", "sell"] and bot_active:
         try:
-            # Desired amount in USDT (quote currency) for the trade
-            desired_cost = 10.7  # ~$10, adjust based on Poloniex minimum order size
-            markets = poloniex.load_markets()
-            if SYMBOL not in markets:
-                logger.error(f"Symbol {SYMBOL} not available on Poloniex.")
-                return "hold", None, None, None
+            quantity = 0.00011  # Fixed quantity for BTC/USDT
             if action == "buy":
-                # Calculate the amount in USDT (quote currency)
-                cost = desired_cost  # Use desired_cost directly as the amount in USDT
-                order = poloniex.create_market_buy_order(SYMBOL, cost, params={'createMarketBuyOrderRequiresPrice': False})
+                order = binance.create_market_buy_order(SYMBOL, quantity)
                 order_id = str(order['id'])
                 live_position = "long"
                 live_buy_price = close_price
-                logger.info(f"Placed live buy order: {order_id}, cost={cost:.2f} USDT, price={close_price:.2f}")
+                logger.info(f"Placed live buy order: {order_id}, quantity={quantity}, price={close_price:.2f}")
             elif action == "sell" and live_position == "long":
-                quantity = desired_cost / live_buy_price  # Approximate quantity based on buy price
-                order = poloniex.create_market_sell_order(SYMBOL, quantity)
+                order = binance.create_market_sell_order(SYMBOL, quantity)
                 order_id = str(order['id'])
                 profit = close_price - live_buy_price
                 live_total_profit += profit
                 live_position = None
-                logger.info(f"Placed live sell order: {order_id}, quantity={quantity:.8f}, price={close_price:.2f}, profit={profit:.2f}")
-        except ccxt.RateLimitExceeded:
-            logger.warning("Poloniex rate limit exceeded. Pausing before retry.")
-            time.sleep(10)
+                logger.info(f"Placed live sell order: {order_id}, quantity={quantity}, price={close_price:.2f}, profit={profit:.2f}")
         except Exception as e:
-            logger.error(f"Error placing live order on Poloniex: {e}")
+            logger.error(f"Error placing live order: {e}")
             action = "hold"
             order_id = None
 
@@ -599,9 +586,6 @@ def trading_bot():
             df = add_technical_indicators(df)
             logger.info(f"Initial df shape: {df.shape}")
             break
-        except ccxt.RateLimitExceeded:
-            logger.warning(f"Poloniex rate limit exceeded fetching historical data. Waiting 5s before retry.")
-            time.sleep(5)
         except Exception as e:
             logger.error(f"Error fetching historical data (attempt {attempt + 1}/3): {e}")
             if attempt < 2:
@@ -610,7 +594,7 @@ def trading_bot():
                 logger.error(f"Failed to fetch historical data for {SYMBOL}")
                 return
 
-    timeframe_seconds = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '4h': 14400, '1d': 86400}.get(TIMEFRAME, 300)  # Poloniex supported timeframes
+    timeframe_seconds = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '1d': 86400}.get(TIMEFRAME, 60)
     
     current_time = datetime.now(WAT_TZ)
     seconds_to_wait = get_next_timeframe_boundary(current_time, timeframe_seconds)
@@ -636,7 +620,7 @@ def trading_bot():
                 if live_position == "long":
                     latest_data = get_simulated_price()
                     if not pd.isna(latest_data['Close']):
-                        order = poloniex.create_market_sell_order(SYMBOL, 0.0001)
+                        order = binance.create_market_sell_order(SYMBOL, 0.001)
                         order_id = str(order['id'])
                         profit = latest_data['Close'] - live_buy_price
                         live_total_profit += profit
@@ -698,7 +682,7 @@ def trading_bot():
                                             send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
                                         position = None
                                     if bot_active and live_position == "long":
-                                        order = poloniex.create_market_sell_order(SYMBOL, 0.0001)
+                                        order = binance.create_market_sell_order(SYMBOL, 0.001)
                                         order_id = str(order['id'])
                                         profit = current_price - live_buy_price
                                         live_total_profit += profit
@@ -725,7 +709,7 @@ def trading_bot():
                                             send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
                                         position = None
                                     if live_position == "long":
-                                        order = poloniex.create_market_sell_order(SYMBOL, 0.0001)
+                                        order = binance.create_market_sell_order(SYMBOL, 0.001)
                                         order_id = str(order['id'])
                                         profit = current_price - live_buy_price
                                         live_total_profit += profit
@@ -1090,6 +1074,7 @@ keep_alive_thread.start()
 logger.info("Keep-alive thread started")
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 5000))  # Render.com sets PORT
+    port = int(os.getenv("PORT", 5000))
     logger.info(f"Starting Flask server on port {port}")
+    asyncio.run(main())
     app.run(host='0.0.0.0', port=port, debug=False)
