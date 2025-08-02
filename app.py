@@ -15,13 +15,19 @@ import requests
 import base64
 from flask import Flask, render_template, jsonify
 import atexit
-
-# Custom formatter for WAT timezone
-class WATFormatter(logging.Formatter):
-    def __init__(self, fmt=None, datefmt=None, tz=pytz.timezone('Africa/Lagos')):
+# **
+# Custom formatter for Binance-accepted EU timezone (UTC)
+class EUFormatter(logging.Formatter):
+    def __init__(self, fmt=None, datefmt=None, tz=pytz.utc):
         super().__init__(fmt, datefmt)
         self.tz = tz
-
+'''
+# Custom formatter for WAT timezone
+#class WATFormatter(logging.Formatter):
+    #def __init__(self, fmt=None, datefmt=None, tz=pytz.timezone('Africa/Lagos')):
+        super().__init__(fmt, datefmt)
+        self.tz = tz
+'''
     def formatTime(self, record, datefmt=None):
         dt = datetime.fromtimestamp(record.created, self.tz)
         if datefmt:
@@ -39,6 +45,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Try to import dotenv, with fallback if not installed
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    logger.debug("Loaded environment variables from .env file")
+except ImportError:
+    logger.warning("python-dotenv not installed. Relying on system environment variables.")
+
 werkzeug_logger = logging.getLogger('werkzeug')
 werkzeug_handler = logging.StreamHandler()
 werkzeug_handler.setFormatter(WATFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
@@ -51,12 +65,12 @@ app = Flask(__name__)
 # Environment variables
 BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID")
-SYMBOL = os.getenv("SYMBOL", "BTC/USDT")
-TIMEFRAME = os.getenv("TIMEFRAME", "5m")
-TIMEFRAMES = int(os.getenv("INTER_SECONDS", "300"))
+SYMBOL = os.getenv("SYMBOL", "SYMBOL")
+TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
+TIMEFRAMES = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -2.0))
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 8.0))
-STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 270000))
+STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 3700))
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
@@ -76,7 +90,8 @@ HEADERS = {
 db_path = 'r_bot.db'
 
 # Timezone setup
-WAT_TZ = pytz.timezone('Africa/Lagos')
+#WAT_TZ = pytz.timezone('Africa/Lagos')
+EU_TZ = pytz.utc
 
 # Global state
 bot_thread = None
@@ -457,7 +472,7 @@ def third_strategy(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=
 
     if action in ["buy", "sell"] and bot_active:
         try:
-            quantity = 0.00011  # Fixed quantity for BTC/USDT
+            quantity = 0.0001  # Fixed quantity for BTC/USDT
             if action == "buy":
                 order = binance.create_market_buy_order(SYMBOL, quantity)
                 order_id = str(order['id'])
@@ -594,7 +609,7 @@ def trading_bot():
                 logger.error(f"Failed to fetch historical data for {SYMBOL}")
                 return
 
-    timeframe_seconds = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '1d': 86400}.get(TIMEFRAME, 60)
+    timeframe_seconds = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '1d': 86400}.get(TIMEFRAME, TIMEFRAMES)
     
     current_time = datetime.now(WAT_TZ)
     seconds_to_wait = get_next_timeframe_boundary(current_time, timeframe_seconds)
