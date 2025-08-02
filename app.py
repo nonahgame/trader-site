@@ -28,11 +28,11 @@ class EUFormatter(logging.Formatter):
         super().__init__(fmt, datefmt)
         self.tz = tz
 '''
-    def formatTime(self, record, datefmt=None):
-        dt = datetime.fromtimestamp(record.created, self.tz)
-        if datefmt:
-            return dt.strftime(datefmt)
-        return dt.strftime('%Y-%m-%d %H:%M:%S')
+def formatTime(self, record, datefmt=None):
+    dt = datetime.fromtimestamp(record.created, self.tz)
+    if datefmt:
+        return dt.strftime(datefmt)
+    return dt.strftime('%Y-%m-%d %H:%M:%S')
 
 # Configure logging
 logging.basicConfig(
