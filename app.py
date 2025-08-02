@@ -55,7 +55,7 @@ except ImportError:
 
 werkzeug_logger = logging.getLogger('werkzeug')
 werkzeug_handler = logging.StreamHandler()
-werkzeug_handler.setFormatter(WATFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
+werkzeug_handler.setFormatter(EUFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
 werkzeug_logger.handlers = [werkzeug_handler, logging.FileHandler('td_sto.log')]
 werkzeug_logger.setLevel(logging.DEBUG)
 
