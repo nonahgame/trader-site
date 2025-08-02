@@ -627,7 +627,7 @@ def trading_bot():
                 if live_position == "long":
                     latest_data = get_simulated_price()
                     if not pd.isna(latest_data['Close']):
-                        order = binance.create_market_sell_order(SYMBOL, 0.001)
+                        order = binance.create_market_sell_order(SYMBOL, 0.0001)
                         order_id = str(order['id'])
                         profit = latest_data['Close'] - live_buy_price
                         live_total_profit += profit
@@ -689,7 +689,7 @@ def trading_bot():
                                             send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
                                         position = None
                                     if bot_active and live_position == "long":
-                                        order = binance.create_market_sell_order(SYMBOL, 0.001)
+                                        order = binance.create_market_sell_order(SYMBOL, 0.0001)
                                         order_id = str(order['id'])
                                         profit = current_price - live_buy_price
                                         live_total_profit += profit
@@ -716,7 +716,7 @@ def trading_bot():
                                             send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
                                         position = None
                                     if live_position == "long":
-                                        order = binance.create_market_sell_order(SYMBOL, 0.001)
+                                        order = binance.create_market_sell_order(SYMBOL, 0.0001)
                                         order_id = str(order['id'])
                                         profit = current_price - live_buy_price
                                         live_total_profit += profit
