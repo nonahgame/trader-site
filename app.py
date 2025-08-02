@@ -115,7 +115,7 @@ last_sell_profit = 0
 tracking_has_buy = False
 tracking_buy_price = None
 total_return_profit = 0
-start_time = datetime.now(WAT_TZ)
+start_time = datetime.now(EU_TZ)
 stop_time = start_time + timedelta(seconds=STOP_AFTER_SECONDS)
 last_valid_price = None
 live_position = None
@@ -306,7 +306,7 @@ def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, r
                 time.sleep(delay)
                 continue
             data = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
-            data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms').dt.tz_localize('UTC').dt.tz_convert(WAT_TZ)
+            data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms').dt.tz_localize('UTC').dt.tz_convert(EU_TZ)
             data['diff'] = data['Close'] - data['Open']
             non_zero_diff = data[abs(data['diff']) > 0]
             selected_data = non_zero_diff.iloc[-1] if not non_zero_diff.empty else data.iloc[-1]
@@ -556,7 +556,7 @@ def trading_bot():
     df = None
 
     initial_signal = {
-        'time': datetime.now(WAT_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+        'time': datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S"),
         'action': 'hold',
         'symbol': SYMBOL,
         'price': 0.0,
@@ -594,7 +594,7 @@ def trading_bot():
                 time.sleep(5)
                 continue
             df = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms').dt.tz_localize('UTC').dt.tz_convert(WAT_TZ)
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms').dt.tz_localize('UTC').dt.tz_convert(EU_TZ)
             df.set_index('timestamp', inplace=True)
             df['High'] = df['High'].fillna(df['Close'])
             df['Low'] = df['Low'].fillna(df['Close'])
@@ -611,15 +611,15 @@ def trading_bot():
 
     timeframe_seconds = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '1d': 86400}.get(TIMEFRAME, TIMEFRAMES)
     
-    current_time = datetime.now(WAT_TZ)
+    current_time = datetime.now(EU_TZ)
     seconds_to_wait = get_next_timeframe_boundary(current_time, timeframe_seconds)
     logger.info(f"Waiting {seconds_to_wait:.2f} seconds to align with next {TIMEFRAME} boundary")
     time.sleep(seconds_to_wait)
 
     while True:
-        loop_start_time = datetime.now(WAT_TZ)
+        loop_start_time = datetime.now(EU_TZ)
         with bot_lock:
-            if datetime.now(WAT_TZ) >= stop_time:
+            if datetime.now(EU_TZ) >= stop_time:
                 bot_active = False
                 if position == "long":
                     latest_data = get_simulated_price()
@@ -674,7 +674,7 @@ def trading_bot():
                 time.sleep(seconds_to_wait)
                 continue
             current_price = latest_data['Close']
-            current_time = datetime.now(WAT_TZ).strftime("%Y-%m-%d %H:%M:%S")
+            current_time = datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
             if bot:
                 try:
@@ -713,7 +713,7 @@ def trading_bot():
                                 multiplier = int(text[5:])
                                 with bot_lock:
                                     pause_duration = multiplier * timeframe_seconds
-                                    pause_start = datetime.now(WAT_TZ)
+                                    pause_start = datetime.now(EU_TZ)
                                     if position == "long":
                                         profit = current_price - buy_price
                                         total_profit += profit
@@ -746,7 +746,7 @@ def trading_bot():
                                         pause_duration = 0
                                         bot.send_message(chat_id=command_chat_id, text="Bot started.")
                             elif text == '/status':
-                                status = "active" if bot_active else f"paused for {int(pause_duration - (datetime.now(WAT_TZ) - pause_start).total_seconds())} seconds" if pause_start else "stopped"
+                                status = "active" if bot_active else f"paused for {int(pause_duration - (datetime.now(EU_TZ) - pause_start).total_seconds())} seconds" if pause_start else "stopped"
                                 bot.send_message(chat_id=command_chat_id, text=status)
                             elif text == '/performance':
                                 bot.send_message(chat_id=command_chat_id, text=get_performance())
@@ -833,7 +833,7 @@ def trading_bot():
             if bot_active and (action != "hold" or live_action != "hold"):
                 upload_to_github(db_path, 'r_bot.db')
 
-            loop_end_time = datetime.now(WAT_TZ)
+            loop_end_time = datetime.now(EU_TZ)
             processing_time = (loop_end_time - loop_start_time).total_seconds()
             seconds_to_wait = get_next_timeframe_boundary(loop_end_time, timeframe_seconds)
             adjusted_sleep = seconds_to_wait - processing_time
@@ -844,7 +844,7 @@ def trading_bot():
             time.sleep(adjusted_sleep)
         except Exception as e:
             logger.error(f"Error in trading loop: {e}")
-            current_time = datetime.now(WAT_TZ)
+            current_time = datetime.now(EU_TZ)
             seconds_to_wait = get_next_timeframe_boundary(current_time, timeframe_seconds)
             time.sleep(seconds_to_wait)
 
