@@ -397,7 +397,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
                 order = exchange.create_market_buy_order(SYMBOL, quantity)
                 order_id = str(order['id'])
                 logger.info(f"Placed market buy order: {order_id}, quantity={quantity}, price={close_price:.2f}")
-            elif action == "sell" #and position == "long":
+            elif action == "sell": #and position == "long":
                 order = exchange.create_market_sell_order(SYMBOL, quantity)
                 order_id = str(order['id'])
                 logger.info(f"Placed market sell order: {order_id}, quantity={quantity}, price={close_price:.2f}")
