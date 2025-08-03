@@ -1,39 +1,3 @@
-']}" if 
-except ': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '1d': 86400}.get(TIMEFRAME, TIMEFRAMES)
-    
-    
-            if datetime.now(EU_TZ) >= stop_time:
-                bot_active = False
-                if 
-
-            if not bot_active:
-                time.sleep(10)
-                continue
-
-        try:
-            if pause_start and pause_duration > 0:
-                elapsed = (datetime.now(EU_TZ) - pause_start).total_seconds()
-                if elapsed < pause_duration:
-                    logger.info(f"Bot paused, resuming in {int(pause_duration - elapsed)} seconds")
-                    time.sleep(min(pause_duration - elapsed, 60))
-                    continue
-                else:
-                    datetime.now(EU_TZ)
-                                                        live_position = None
-                                        live_buy_price = None
-                                        save_state()
-                                    bot_active = False
-                                bot.send_message(chat_id=command_chat_id, text=f"Bot paused for {pause_duration/60} minutes.")
-                                upload_to_github(db_path, 're_bot.db')  # Updated to re_bot.db
-                            elif text == '/start':
-                                with bot_lock:
-                                    if not bot_active:
-                                        bot_active = True
-                                        position = None
-                                        live_position = None
-                                        live_buy_price = None
-                                        pause_start = None
-                                        pause_duration = 0
                                         save_state()
                                         bot.send_message(chat_id=command_chat_id, text="Bot started.")
                             elif text == '/status':
