@@ -1,3 +1,4 @@
+# pp
 import os
 import pandas as pd
 import numpy as np
@@ -65,7 +66,7 @@ TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
 TIMEFRAMES = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -2.0))
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 8.0))
-STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 0))
+STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 0))  # Set to 0 to disable auto-stop
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
@@ -107,7 +108,7 @@ tracking_has_buy = False
 tracking_buy_price = None
 total_return_profit = 0
 start_time = datetime.now(EU_TZ)
-stop_time = None #start_time + timedelta(seconds=STOP_AFTER_SECONDS)
+stop_time = None  # Disable stop time if STOP_AFTER_SECONDS is 0
 last_valid_price = None
 
 # GitHub database functions
@@ -357,6 +358,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         market = exchange.load_markets()[SYMBOL]
         quantity_precision = market['precision']['amount']
         quantity = exchange.amount_to_precision(SYMBOL, quantity)
+        logger.debug(f"Calculated quantity: {quantity} for {usdt_amount} USDT at price {close_price:.2f}")
     except Exception as e:
         logger.error(f"Error calculating quantity: {e}")
         return "hold", None, None, None
@@ -468,7 +470,13 @@ KDJ J: {signal['j']:.2f}
 {f"Order ID: {signal['order_id']}" if signal['order_id'] else ""}
 """
             bot.send_message(chat_id=chat_id, text=message)
-            logger.info(f"Telegram message sent successfully")
+            logger.info(f"Telegram message sent successfully: {signal['action']}, order_id={signal['order_id']}")
+            return
+        except telegram.error.InvalidToken:
+            logger.error(f"Invalid Telegram bot token: {bot_token}")
+            return
+        except telegram.error.ChatNotFound:
+            logger.error(f"Chat not found for chat_id: {chat_id}")
             return
         except Exception as e:
             logger.error(f"Error sending Telegram message (attempt {attempt + 1}/{retries}): {e}")
@@ -486,15 +494,50 @@ def get_next_timeframe_boundary(current_time, timeframe_seconds):
 
 # Trading bot
 def trading_bot():
-    global bot_active, position, buy_price, total_profit, pause_duration, pause_start, conn
+    global bot_active, position, buy_price, total_profit, pause_duration, pause_start, conn, stop_time
     bot = None
     try:
         bot = Bot(token=BOT_TOKEN)
         logger.info("Telegram bot initialized successfully")
+        # Send test message to verify Telegram setup
+        test_signal = {
+            'time': datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+            'action': 'test',
+            'symbol': SYMBOL,
+            'price': 0.0,
+            'open_price': 0.0,
+            'close_price': 0.0,
+            'volume': 0.0,
+            'percent_change': 0.0,
+            'stop_loss': None,
+            'take_profit': None,
+            'profit': 0.0,
+            'total_profit': 0.0,
+            'return_profit': 0.0,
+            'total_return_profit': 0.0,
+            'ema1': 0.0,
+            'ema2': 0.0,
+            'rsi': 0.0,
+            'k': 0.0,
+            'd': 0.0,
+            'j': 0.0,
+            'diff': 0.0,
+            'message': f"Test message for {SYMBOL} bot startup",
+            'timeframe': TIMEFRAME,
+            'order_id': None,
+            'strategy': 'test'
+        }
+        send_telegram_message(test_signal, BOT_TOKEN, CHAT_ID)
+        store_signal(test_signal)
     except telegram.error.InvalidToken:
         logger.warning("Invalid Telegram bot token. Telegram functionality disabled.")
+        bot = None
+    except telegram.error.ChatNotFound:
+        logger.warning(f"Chat not found for chat_id: {CHAT_ID}. Telegram functionality disabled.")
+        bot = None
     except Exception as e:
         logger.error(f"Error initializing Telegram bot: {e}")
+        bot = None
 
     last_update_id = 0
     df = None
@@ -563,7 +606,7 @@ def trading_bot():
     while True:
         loop_start_time = datetime.now(EU_TZ)
         with bot_lock:
-            if datetime.now(EU_TZ) >= stop_time:
+            if STOP_AFTER_SECONDS > 0 and datetime.now(EU_TZ) >= stop_time:
                 bot_active = False
                 if position == "long":
                     latest_data = get_simulated_price()
@@ -571,7 +614,6 @@ def trading_bot():
                         profit = latest_data['Close'] - buy_price
                         total_profit += profit
                         return_profit, msg = handle_second_strategy("sell", latest_data['Close'], profit)
-                        # Place market sell order
                         usdt_amount = 11.00
                         quantity = exchange.amount_to_precision(SYMBOL, usdt_amount / latest_data['Close'])
                         order_id = None
@@ -591,7 +633,15 @@ def trading_bot():
                 break
 
             if not bot_active:
-                time.sleep(10)
+                logger.info("Bot is stopped. Attempting to restart.")
+                bot_active = True
+                position = None
+                pause_start = None
+                pause_duration = 0
+                if STOP_AFTER_SECONDS > 0:
+                    stop_time = datetime.now(EU_TZ) + timedelta(seconds=STOP_AFTER_SECONDS)
+                if bot:
+                    bot.send_message(chat_id=CHAT_ID, text="Bot restarted automatically.")
                 continue
 
         try:
@@ -606,6 +656,8 @@ def trading_bot():
                     pause_duration = 0
                     position = None
                     logger.info("Bot resumed after pause")
+                    if bot:
+                        bot.send_message(chat_id=CHAT_ID, text="Bot resumed after pause.")
 
             latest_data = get_simulated_price()
             if pd.isna(latest_data['Close']):
@@ -682,6 +734,8 @@ def trading_bot():
                                         position = None
                                         pause_start = None
                                         pause_duration = 0
+                                        if STOP_AFTER_SECONDS > 0:
+                                            stop_time = datetime.now(EU_TZ) + timedelta(seconds=STOP_AFTER_SECONDS)
                                         bot.send_message(chat_id=command_chat_id, text="Bot started.")
                             elif text == '/status':
                                 status = "active" if bot_active else f"paused for {int(pause_duration - (datetime.now(EU_TZ) - pause_start).total_seconds())} seconds" if pause_start else "stopped"
@@ -693,8 +747,10 @@ def trading_bot():
                         last_update_id = update.update_id + 1
                 except telegram.error.InvalidToken:
                     logger.warning("Invalid Telegram bot token. Skipping Telegram updates.")
+                    bot = None
                 except telegram.error.ChatNotFound:
-                    logger.error(f"Chat not found for chat_id: {CHAT_ID}. Skipping Telegram updates.")
+                    logger.warning(f"Chat not found for chat_id: {CHAT_ID}. Skipping Telegram updates.")
+                    bot = None
                 except Exception as e:
                     logger.error(f"Error processing Telegram updates: {e}")
 
@@ -735,7 +791,7 @@ def trading_bot():
 
                 signal = create_signal(action, current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, msg, order_id, "primary")
                 store_signal(signal)
-                logger.debug(f"Generated signal: action={signal['action']}, time={signal['time']}, price={signal['price']:.2f}, order_id={order_id}")
+                logger.debug(f"Generated signal: action={signal['action']}, time={signal['time']}, price={signal['price']:.2f}, order_id={signal['order_id']}")
 
                 if bot_active and action != "hold" and bot:
                     threading.Thread(target=send_telegram_message, args=(signal, BOT_TOKEN, CHAT_ID), daemon=True).start()
@@ -925,7 +981,7 @@ def index():
                 logger.warning("Database connection is None in index route. Attempting to reinitialize.")
                 if not setup_database():
                     logger.error("Failed to reinitialize database for index route")
-                    stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S")
+                    stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S") if stop_time else "N/A"
                     current_time = datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S")
                     return render_template('index.html', signal=None, status=status, timeframe=TIMEFRAME,
                                          trades=[], stop_time=stop_time_str, current_time=current_time)
@@ -935,7 +991,7 @@ def index():
             columns = [col[0] for col in c.description]
             trades = [dict(zip(columns, row)) for row in rows]
             signal = trades[0] if trades else None
-            stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S")
+            stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S") if stop_time else "N/A"
             current_time = datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S")
             elapsed = time.time() - start_time
             logger.info(f"Rendering index.html: status={status}, timeframe={TIMEFRAME}, trades={len(trades)}, signal_exists={signal is not None}, signal_time={signal['time'] if signal else 'None'}, query_time={elapsed:.3f}s")
@@ -950,7 +1006,8 @@ def index():
 @app.route('/status')
 def status():
     status = "active" if bot_active else "stopped"
-    return jsonify({"status": status, "timeframe": TIMEFRAME, "stop_time": stop_time.strftime("%Y-%m-%d %H:%M:%S")})
+    stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S") if stop_time else "N/A"
+    return jsonify({"status": status, "timeframe": TIMEFRAME, "stop_time": stop_time_str})
 
 @app.route('/performance')
 def performance():
