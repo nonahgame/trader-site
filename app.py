@@ -1,81 +1,10 @@
-�" if signal['diff'] > 0 else "🔴"
-            message = f"""
-Time: {signal['time'] | datetimeformat}
-Timeframe: {signal['timeframe']}
-Strategy: {signal['strategy']}
-Msg: {signal['message']}
-Price: {signal['price']:.2f}
-Open: {signal['open_price']:.2f}
-Close: {signal['close_price']:.2f}
-Volume: {signal['volume']:.2f}
-% Change: {signal['percent_change']:.2f}%
-EMA1 (12): {signal['ema1']:.2f}
-EMA2 (26): {signal['ema2']:.2f}
-RSI (14): {signal['rsi']:.2f}
-Diff: {diff_color} {signal['diff']:.2f}
-KDJ K: {signal['k']:.2f}
-KDJ D: {signal['d']:.2f}
-KDJ J: {signal['j']:.2f}
-{f"Order ID: {signal['order_id']}" if signal['order_id'] else ""}
-{error.InvalidToken:
-        logger.warning("Invalid Telegram bot token. Telegram functionality disabled.")
-    except Exception as e:
-        logger.error(f"Error initializing Telegram bot: {e}")
-
-    '].fillna(df['Close'])
-            df['Low'] = df['Low'].fillna(df['Close'])
-            df = add_technical_indicators(df)
-            logger.info(f"Initial df shape: {df.shape}")
-            break
-        except Exception as e:
-            logger.error(f"Error fetching historical data (attempt {attempt + 1}/3): {e}")
-            if attempt < 2:
-                time.sleep(5)
-            else:
-                logger.error(f"Failed to fetch historical data for {SYMBOL}")
-                return
-
-    timeframe_seconds = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '1d': 86400}.get(TIMEFRAME, TIMEFRAMES)
+']}" if 
+except ': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '1d': 86400}.get(TIMEFRAME, TIMEFRAMES)
     
-    current_time = datetime.now(EU_TZ)
-    seconds_to_wait = get_next_timeframe_boundary(current_time, timeframe_seconds)
-    logger.info(f"Waiting {seconds_to_wait:.2f} seconds to align with next {TIMEFRAME} boundary")
-    time.sleep(seconds_to_wait)
-
-    while True:
-        loop_start_time = datetime.now(EU_TZ)
-        with bot_lock:
+    
             if datetime.now(EU_TZ) >= stop_time:
                 bot_active = False
-                if position == "long":
-                    latest_data = get_simulated_price()
-                    if not pd.isna(latest_data['Close']):
-                        profit = latest_data['Close'] - buy_price
-                        total_profit += profit
-                        return_profit, msg = handle_second_strategy("sell", latest_data['Close'], profit)
-                        signal = create_signal("sell", latest_data['Close'], latest_data, df, profit, total_profit, return_profit, total_return_profit, f"Bot stopped due to time limit{msg}", None, "primary")
-                        store_signal(signal)
-                        if bot:
-                            send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
-                    position = None
-                if live_position == "long":
-                    latest_data = get_simulated_price()
-                    if not pd.isna(latest_data['Close']):
-                        quantity = get_order_quantity(SYMBOL, latest_data['Close'])
-                        order = binance.create_market_sell_order(SYMBOL, quantity)
-                        order_id = str(order['id'])
-                        profit = latest_data['Close'] - live_buy_price
-                        live_total_profit += profit
-                        signal = create_signal("sell", latest_data['Close'], latest_data, df, profit, live_total_profit, 0, 0, f"Live bot stopped due to time limit, Order ID: {order_id}", order_id, "third")
-                        store_signal(signal)
-                        if bot:
-                            send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
-                        live_position = None
-                        live_buy_price = None
-                        save_state()
-                logger.info("Bot stopped due to time limit")
-                upload_to_github(db_path, 're_bot.db')  # Updated to re_bot.db
-                break
+                if 
 
             if not bot_active:
                 time.sleep(10)
@@ -89,77 +18,8 @@ KDJ J: {signal['j']:.2f}
                     time.sleep(min(pause_duration - elapsed, 60))
                     continue
                 else:
-                    pause_start = None
-                    pause_duration = 0
-                    position = None
-                    live_position = None
-                    live_buy_price = None
-                    save_state()
-                    logger.info("Bot resumed after pause")
-
-            latest_data = get_simulated_price()
-            if pd.isna(latest_data['Close']):
-                logger.warning("Skipping cycle due to missing price data.")
-                current_time = datetime.now(EU_TZ)
-                seconds_to_wait = get_next_timeframe_boundary(current_time, timeframe_seconds)
-                time.sleep(seconds_to_wait)
-                continue
-            current_price = latest_data['Close']
-            current_time = datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S")
-
-            if bot:
-                try:
-                    updates = bot.get_updates(offset=last_update_id, timeout=10)
-                    for update in updates:
-                        if update.message and update.message.text:
-                            text = update.message.text.strip()
-                            command_chat_id = update.message.chat.id
-                            if text == '/help':
-                                bot.send_message(chat_id=command_chat_id, text="Commands: /help, /stop, /stopN, /start, /status, /performance, /count")
-                            elif text == '/stop':
-                                with bot_lock:
-                                    if bot_active and position == "long":
-                                        profit = current_price - buy_price
-                                        total_profit += profit
-                                        return_profit, msg = handle_second_strategy("sell", current_price, profit)
-                                        signal = create_signal("sell", current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, f"Bot stopped via Telegram{msg}", None, "primary")
-                                        store_signal(signal)
-                                        if bot:
-                                            send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
-                                        position = None
-                                    if bot_active and live_position == "long":
-                                        quantity = get_order_quantity(SYMBOL, current_price)
-                                        order = binance.create_market_sell_order(SYMBOL, quantity)
-                                        order_id = str(order['id'])
-                                        profit = current_price - live_buy_price
-                                        live_total_profit += profit
-                                        signal = create_signal("sell", current_price, latest_data, df, profit, live_total_profit, 0, 0, f"Live bot stopped via Telegram, Order ID: {order_id}", order_id, "third")
-                                        store_signal(signal)
-                                        if bot:
-                                            send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
-                                        live_position = None
-                                        live_buy_price = None
-                                        save_state()
-                                    bot_active = False
-                                bot.send_message(chat_id=command_chat_id, text="B
-                                        total_profit += profit
-                                        return_profit, msg = handle_second_strategy("sell", current_price, profit)
-                                        signal = create_signal("sell", current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, f"Bot paused via Telegram{msg}", None, "primary")
-                                        store_signal(signal)
-                                        if bot:
-                                            send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
-                                        position = None
-                                    if live_position == "long":
-                                        quantity = get_order_quantity(SYMBOL, current_price)
-                                        order = binance.create_market_sell_order(SYMBOL, quantity)
-                                        order_id = str(order['id'])
-                                        profit = current_price - live_buy_price
-                                        live_total_profit += profit
-                                        signal = create_signal("sell", current_price, latest_data, df, profit, live_total_profit, 0, 0, f"Live bot paused via Telegram, Order ID: {order_id}", order_id, "third")
-                                        store_signal(signal)
-                                        if bot:
-                                            send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
-                                        live_position = None
+                    datetime.now(EU_TZ)
+                                                        live_position = None
                                         live_buy_price = None
                                         save_state()
                                     bot_active = False
