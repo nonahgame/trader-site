@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Bot Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        h1 {
+            color: #333;
+        }
+        .status {
+            font-weight: bold;
+            color: {% if status == 'active' %}green{% else %}red{% endif %};
+        }
+        .signal {
+            background-color: #fff;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background-color: #fff;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        th, td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        .buy {
+            color: green;
+        }
+        .sell {
+            color: red;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>Trading Bot Dashboard</h1>
+    <p><strong>Status:</strong> <span class="status">{{ status }}</span></p>
+    <p><strong>Timeframe:</strong> {{ timeframe }}</p>
+    <p><strong>Current Time:</strong> {{ current_time | datetimeformat }}</p>
+    <p><strong>Stop Time:</strong> {{ stop_time | datetimeformat }}</p>
+
+    {% if error %}
+        <p class="error">{{ error }}</p>
+    {% endif %}
+
+    {% if signal %}
+        <div class="signal">
+            <h2>Latest Signal</h2>
+            <p><strong>Time:</strong> {{ signal.time | datetimeformat }}</p>
+            <p><strong>Strategy:</strong> {{ signal.strategy }}</p>
+            <p><strong>Action:</strong> <span class="{{ signal.action }}">{{ signal.action | upper }}</span></p>
+            <p><strong>Symbol:</strong> {{ signal.symbol }}</p>
+            <p><strong>Price:</strong> {{ signal.price | float | round(2) }}</p>
+            <p><strong>Open Price:</strong> {{ signal.open_price | float | round(2) }}</p>
+            <p><strong>Close Price:</strong> {{ signal.close_price | float | round(2) }}</p>
+            <p><strong>Volume:</strong> {{ signal.volume | float | round(2) }}</p>
+            <p><strong>% Change:</strong> {{ signal.percent_change | float | round(2) }}%</p>
+            <p><strong>EMA1 (12):</strong> {{ signal.ema1 | float | round(2) }}</p>
+            <p><strong>EMA2 (26):</strong> {{ signal.ema2 | float | round(2) }}</p>
+            <p><strong>RSI (14):</strong> {{ signal.rsi | float | round(2) }}</p>
+            <p><strong>Diff:</strong> {{ signal.diff | float | round(2) }} {% if signal.diff > 0 %}🟢{% else %}🔴{% endif %}</p>
+            <p><strong>KDJ K:</strong> {{ signal.k | float | round(2) }}</p>
+            <p><strong>KDJ D:</strong> {{ signal.d | float | round(2) }}</p>
+            <p><strong>KDJ J:</strong> {{ signal.j | float | round(2) }}</p>
+            <p><strong>Message:</strong> {{ signal.message }}</p>
+            {% if signal.order_id %}
+                <p><strong>Order ID:</strong> {{ signal.order_id }}</p>
+            {% endif %}
+            {% if signal.action in ['buy', 'sell'] %}
+                <p><strong>Total Profit:</strong> {{ signal.total_profit | float | round(2) }}</p>
+            {% endif %}
+            {% if signal.action == 'sell' %}
+                <p><strong>Profit:</strong> {{ signal.profit | float | round(2) }}</p>
+            {% endif %}
+            {% if signal.strategy == 'primary' and signal.return_profit != 0 %}
+                <p><strong>Return Profit:</strong> {{ signal.return_profit | float | round(2) }}</p>
+                <p><strong>Total Return Profit:</strong> {{ signal.total_return_profit | float | round(2) }}</p>
+            {% endif %}
+        </div>
+    {% else %}
+        <p>No signal available.</p>
+    {% endif %}
+
+    <h2>Recent Trades</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>Strategy</th>
+                <th>Action</th>
+                <th>Symbol</th>
+                <th>Price</th>
+                <th>Open</th>
+                <th>Close</th>
+                <th>Volume</th>
+                <th>% Change</th>
+                <th>EMA1</th>
+                <th>EMA2</th>
+                <th>RSI</th>
+                <th>Diff</th>
+                <th>KDJ K</th>
+                <th>KDJ D</th>
+                <th>KDJ J</th>
+                <th>Message</th>
+                <th>Order ID</th>
+                <th>Profit</th>
+                <th>Total Profit</th>
+                <th>Return Profit</th>
+                <th>Total Return Profit</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for trade in trades %}
+                <tr>
+                    <td>{{ trade.time | datetimeformat }}</td>
+                    <td>{{ trade.strategy }}</td>
+                    <td class="{{ trade.action }}">{{ trade.action | upper }}</td>
+                    <td>{{ trade.symbol }}</td>
+                    <td>{{ trade.price | float | round(2) }}</td>
+                    <td>{{ trade.open_price | float | round(2) }}</td>
+                    <td>{{ trade.close_price | float | round(2) }}</td>
+                    <td>{{ trade.volume | float | round(2) }}</td>
+                    <td>{{ trade.percent_change | float | round(2) }}%</td>
+                    <td>{{ trade.ema1 | float | round(2) }}</td>
+                    <td>{{ trade.ema2 | float | round(2) }}</td>
+                    <td>{{ trade.rsi | float | round(2) }}</td>
+                    <td>{{ trade.diff | float | round(2) }} {% if trade.diff > 0 %}🟢{% else %}🔴{% endif %}</td>
+                    <td>{{ trade.k | float | round(2) }}</td>
+                    <td>{{ trade.d | float | round(2) }}</td>
+                    <td>{{ trade.j | float | round(2) }}</td>
+                    <td>{{ trade.message }}</td>
+                    <td>{{ trade.order_id or '' }}</td>
+                    <td>{{ trade.profit | float | round(2) }}</td>
+                    <td>{{ trade.total_profit | float | round(2) }}</td>
+                    <td>{{ trade.return_profit | float | round(2) }}</td>
+                    <td>{{ trade.total_return_profit | float | round(2) }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
