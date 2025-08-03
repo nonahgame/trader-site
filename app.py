@@ -107,7 +107,7 @@ tracking_has_buy = False
 tracking_buy_price = None
 total_return_profit = 0
 start_time = datetime.now(EU_TZ)
-stop_time = start_time + timedelta(seconds=STOP_AFTER_SECONDS)
+stop_time = None #start_time + timedelta(seconds=STOP_AFTER_SECONDS)
 last_valid_price = None
 
 # GitHub database functions
