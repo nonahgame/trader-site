@@ -66,7 +66,6 @@ TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
 TIMEFRAMES = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -2.0))
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 8.0))
-STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 3700))
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
@@ -109,7 +108,6 @@ tracking_has_buy = False
 tracking_buy_price = None
 total_return_profit = 0
 start_time = datetime.now(EU_TZ)
-stop_time = start_time + timedelta(seconds=STOP_AFTER_SECONDS)
 last_valid_price = None
 
 # GitHub database functions
@@ -388,7 +386,7 @@ def handle_second_strategy(action, current_price, primary_profit, position, buy_
     msg = ""
     order_id = None
     executed_action = action
-    usdt_amount = AMOUNTS  # Minimum trade value in USDT
+    usdt_amount = AMOUNTS #11.00  # Minimum trade value in USDT
     try:
         quantity = exchange.amount_to_precision(SYMBOL, usdt_amount / current_price)
     except Exception as e:
@@ -612,32 +610,6 @@ def trading_bot():
     while True:
         loop_start_time = datetime.now(EU_TZ)
         with bot_lock:
-            if datetime.now(EU_TZ) >= stop_time:
-                bot_active = False
-                if position == "long":
-                    latest_data = get_simulated_price()
-                    if not pd.isna(latest_data['Close']):
-                        profit = latest_data['Close'] - buy_price
-                        total_profit += profit
-                        usdt_amount = 11.00
-                        try:
-                            quantity = exchange.amount_to_precision(SYMBOL, usdt_amount / latest_data['Close'])
-                            order = exchange.create_market_sell_order(SYMBOL, quantity)
-                            order_id = str(order['id'])
-                            logger.info(f"Placed market sell order on stop: {order_id}, quantity={quantity}, price={latest_data['Close']:.2f}")
-                        except Exception as e:
-                            logger.error(f"Error placing market sell order on stop: {e}")
-                            order_id = None
-                        executed_action, return_profit, msg, order_id = handle_second_strategy("sell", latest_data['Close'], profit, position, buy_price)
-                        signal = create_signal(executed_action, latest_data['Close'], latest_data, df, profit, total_profit, return_profit, total_return_profit, f"Bot stopped due to time limit: {msg}", order_id, "second")
-                        store_signal(signal)
-                        if bot:
-                            send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
-                    position = None
-                logger.info("Bot stopped due to time limit")
-                upload_to_github(db_path, 're_bot.db')
-                break
-
             if not bot_active:
                 time.sleep(10)
                 continue
@@ -732,7 +704,6 @@ def trading_bot():
                                         position = None
                                         pause_start = None
                                         pause_duration = 0
-                                        stop_time = datetime.now(EU_TZ) + timedelta(seconds=STOP_AFTER_SECONDS)
                                         bot.send_message(chat_id=command_chat_id, text="Bot started.")
                             elif text == '/status':
                                 status = "active" if bot_active else f"paused for {int(pause_duration - (datetime.now(EU_TZ) - pause_start).total_seconds())} seconds" if pause_start else "stopped"
@@ -965,7 +936,7 @@ Total Return Profit: {total_return_profit_db:.2f}
 
 @app.route('/')
 def index():
-    global conn, stop_time
+    global conn
     status = "active" if bot_active else "stopped"
     start_time = time.time()
     with db_lock:
@@ -974,22 +945,20 @@ def index():
                 logger.warning("Database connection is None in index route. Attempting to reinitialize.")
                 if not setup_database():
                     logger.error("Failed to reinitialize database for index route")
-                    stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S") if stop_time else "N/A"
                     current_time = datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S")
                     return render_template('index.html', signal=None, status=status, timeframe=TIMEFRAME,
-                                         trades=[], stop_time=stop_time_str, current_time=current_time)
+                                         trades=[], stop_time="Manual", current_time=current_time)
             c = conn.cursor()
             c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 16")
             rows = c.fetchall()
             columns = [col[0] for col in c.description]
             trades = [dict(zip(columns, row)) for row in rows]
             signal = trades[0] if trades else None
-            stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S") if stop_time else "N/A"
             current_time = datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S")
             elapsed = time.time() - start_time
             logger.info(f"Rendering index.html: status={status}, timeframe={TIMEFRAME}, trades={len(trades)}, signal_exists={signal is not None}, signal_time={signal['time'] if signal else 'None'}, query_time={elapsed:.3f}s")
             return render_template('index.html', signal=signal, status=status, timeframe=TIMEFRAME,
-                                 trades=trades, stop_time=stop_time_str, current_time=current_time)
+                                 trades=trades, stop_time="Manual", current_time=current_time)
         except Exception as e:
             elapsed = time.time() - start_time
             logger.error(f"Error rendering index.html after {elapsed:.3f}s: {e}")
@@ -999,8 +968,7 @@ def index():
 @app.route('/status')
 def status():
     status = "active" if bot_active else "stopped"
-    stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S") if stop_time else "N/A"
-    return jsonify({"status": status, "timeframe": TIMEFRAME, "stop_time": stop_time_str})
+    return jsonify({"status": status, "timeframe": TIMEFRAME, "stop_time": "Manual"})
 
 @app.route('/performance')
 def performance():
