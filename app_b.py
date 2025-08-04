@@ -72,6 +72,7 @@ GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
 BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "BINANCE_API_KEY")
 BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET", "BINANCE_API_SECRET")
+AMOUNTS = float(os.getenv("AMOUNTS", "AMOUNTS"))
 
 # GitHub API setup
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
@@ -387,7 +388,7 @@ def handle_second_strategy(action, current_price, primary_profit, position, buy_
     msg = ""
     order_id = None
     executed_action = action
-    usdt_amount = 11.00  # Minimum trade value in USDT
+    usdt_amount = AMOUNTS  # Minimum trade value in USDT
     try:
         quantity = exchange.amount_to_precision(SYMBOL, usdt_amount / current_price)
     except Exception as e:
