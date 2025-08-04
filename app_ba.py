@@ -71,6 +71,7 @@ GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
 BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "BINANCE_API_KEY")
 BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET", "BINANCE_API_SECRET")
+AMOUNTS = float(os.getenv("AMOUNTS", "AMOUNTS")
 
 # GitHub API setup
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
@@ -483,8 +484,8 @@ def third_strategy(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=
     if action in ["buy", "sell"] and bot_active:
         try:
             # Calculate quantity for minimum 11.00 USDT trade value
-            min_trade_value = 11.00  # Minimum trade value in USDT
-            quantity = min_trade_value / close_price
+            min_trade_value = AMOUNTS #11.00  # Minimum trade value in USDT
+            quantity = min_trade_value #/ close_price
             # Fetch market info for quantity precision
             markets = exchange.load_markets()
             symbol_info = markets[SYMBOL]
