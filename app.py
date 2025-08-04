@@ -1,5 +1,4 @@
 # in prg
-# pp
 import os
 import pandas as pd
 import numpy as np
@@ -73,6 +72,7 @@ GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
 BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "BINANCE_API_KEY")
 BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET", "BINANCE_API_SECRET")
+AMOUNTS = float(os.getenv("AMOUNTS", "AMOUNTS"))
 
 # GitHub API setup
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
@@ -352,7 +352,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
     order_id = None
 
     # Calculate quantity based on 11.00 USDT
-    usdt_amount = 11.00
+    usdt_amount = AMOUNTS # 11.00
     try:
         quantity = usdt_amount / close_price
         # Adjust quantity to meet Binance precision requirements
