@@ -1,4 +1,3 @@
-# pp
 import os
 import pandas as pd
 import numpy as np
@@ -18,7 +17,7 @@ from flask import Flask, render_template, jsonify
 import atexit
 import asyncio
 
-# Custom formatter for EU timezone (UTC)
+# Custom formatter for Binance-accepted EU timezone (UTC)
 class EUFormatter(logging.Formatter):
     def __init__(self, fmt=None, datefmt=None, tz=pytz.utc):
         super().__init__(fmt, datefmt)
@@ -41,7 +40,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Try to import dotenv, with fallback if not installed
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -61,11 +59,12 @@ app = Flask(__name__)
 # Environment variables
 BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID")
-SYMBOL = os.getenv("SYMBOL", "SYMBOL")
+SYMBOL = os.getenv("SYMBOL", "BTC/USDT")
 TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
 TIMEFRAMES = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -2.0))
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 8.0))
+STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 0))
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
@@ -84,7 +83,7 @@ HEADERS = {
 db_path = 're_bot.db'
 
 # Timezone setup
-EU_TZ = pytz.utc  # EU time zone (UTC)
+EU_TZ = pytz.utc
 
 # Global state
 bot_thread = None
@@ -109,6 +108,14 @@ tracking_buy_price = None
 total_return_profit = 0
 start_time = datetime.now(EU_TZ)
 last_valid_price = None
+live_position = None
+live_buy_price = None
+live_total_profit = 0
+live_tracking_enabled = True
+live_last_sell_profit = 0
+live_tracking_has_buy = False
+live_tracking_buy_price = None
+live_total_return_profit = 0
 
 # GitHub database functions
 def upload_to_github(file_path, file_name):
@@ -335,7 +342,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
     if df.empty or len(df) < 1:
         logger.warning("DataFrame is empty or too small for decision.")
         return "hold", None, None
-    
+
     latest = df.iloc[-1]
     close_price = latest['Close']
     open_price = latest['Open']
@@ -379,80 +386,155 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
     logger.debug(f"AI decision: action={action}, stop_loss={stop_loss}, take_profit={take_profit}, kdj_j={kdj_j:.2f}")
     return action, stop_loss, take_profit
 
-# Second strategy logic with market orders
-def handle_second_strategy(action, current_price, primary_profit, position, buy_price):
+# Second strategy logic
+def handle_second_strategy(action, current_price, primary_profit):
     global tracking_enabled, last_sell_profit, tracking_has_buy, tracking_buy_price, total_return_profit
     return_profit = 0
     msg = ""
-    order_id = None
-    executed_action = "hold"
-    usdt_amount = AMOUNTS #11.00  # Minimum trade value in USDT
-
-    logger.debug(f"handle_second_strategy: action={action}, position={position}, buy_price={buy_price}, current_price={current_price:.2f}, tracking_has_buy={tracking_has_buy}, tracking_buy_price={tracking_buy_price}, last_sell_profit={last_sell_profit:.2f}")
-
-    # Validate position state consistency
-    if (position == "long" and buy_price is None) or (position is None and buy_price is not None):
-        logger.error(f"Position state inconsistency: position={position}, buy_price={buy_price}")
-        return "hold", 0, f"HOLD {SYMBOL} at {current_price:.2f} (Invalid position state)", None
-
-    # Synchronize tracking_has_buy with position
-    if position == "long" and not tracking_has_buy:
-        logger.warning(f"Synchronizing tracking_has_buy: setting to True, tracking_buy_price={buy_price}")
+    if action == "buy":
         tracking_has_buy = True
-        tracking_buy_price = buy_price
-    elif position is None and tracking_has_buy:
-        logger.warning("Synchronizing tracking_has_buy: setting to False")
+        tracking_buy_price = current_price
+        msg = ""
+    elif action == "sell" and tracking_has_buy:
+        last_sell_profit = primary_profit
+        if last_sell_profit > 0:
+            tracking_enabled = True
+        else:
+            tracking_enabled = False
+        return_profit = current_price - tracking_buy_price
+        total_return_profit += return_profit
         tracking_has_buy = False
-        tracking_buy_price = None
+        msg = f", Return Profit: {return_profit:.2f}"
+    elif action == "sell" and not tracking_has_buy:
+        last_sell_profit = primary_profit
+        if last_sell_profit > 0:
+            tracking_enabled = True
+        else:
+            tracking_enabled = False
+        msg = " (Paused Sell2)"
+    return return_profit, msg
 
-    try:
-        quantity = exchange.amount_to_precision(SYMBOL, usdt_amount / current_price)
-        if quantity <= 0:
-            raise ValueError("Calculated quantity is zero or negative")
-    except Exception as e:
-        logger.error(f"Error calculating quantity for {usdt_amount} USDT at price {current_price:.2f}: {e}")
-        return "hold", 0, f"HOLD {SYMBOL} at {current_price:.2f} (Quantity calculation failed: {str(e)})", None
+# Modified third strategy logic
+def third_strategy(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAKE_PROFIT_PERCENT, position=None, buy_price=None):
+    global live_position, live_buy_price, live_total_profit, live_tracking_enabled, live_last_sell_profit, live_tracking_has_buy, live_tracking_buy_price, live_total_return_profit
+    if df.empty or len(df) < 1:
+        logger.warning("DataFrame is empty or too small for third strategy.")
+        return "hold", None, None, None
 
-    if action == "buy" and position is None and not tracking_has_buy:
-        if last_sell_profit > 0 and tracking_enabled:
-            try:
+    latest = df.iloc[-1]
+    close_price = latest['Close']
+    action = "hold"
+    stop_loss = None
+    take_profit = None
+    order_id = None
+    return_profit = 0
+    msg = ""
+
+    # Use ai_decision for buy/sell signals, same as second strategy
+    recommended_action, stop_loss, take_profit = ai_decision(df, stop_loss_percent, take_profit_percent, position=live_position, buy_price=live_buy_price)
+    logger.debug(f"Recommended action: {recommended_action}, live_position: {live_position}")
+
+    # Apply second strategy logic for buy/sell decisions
+    if bot_active and recommended_action == "buy" and live_position is None:
+        action = "buy"
+        live_tracking_has_buy = True
+        live_tracking_buy_price = close_price
+        msg = ""
+    elif bot_active and recommended_action == "sell" and live_position == "long":
+        action = "sell"
+        profit = close_price - live_buy_price
+        live_last_sell_profit = profit
+        if live_last_sell_profit > 0:
+            live_tracking_enabled = True
+        else:
+            live_tracking_enabled = False
+        if live_tracking_has_buy:
+            return_profit = close_price - live_tracking_buy_price
+            live_total_return_profit += return_profit
+            live_tracking_has_buy = False
+            msg = f", Return Profit: {return_profit:.2f}"
+        else:
+            msg = " (Paused Sell3)"
+        live_total_profit += profit
+        if stop_loss and close_price <= stop_loss:
+            msg += " (Stop-Loss)"
+        elif take_profit and close_price >= take_profit:
+            msg += " (Take-Profit)"
+    elif recommended_action == "buy" and live_position is not None:
+        logger.debug("Prevented consecutive live buy order.")
+        action = "hold"
+    elif recommended_action == "sell" and live_position is None:
+        logger.debug("Prevented live sell order without open position.")
+        action = "hold"
+
+    # Execute live market orders
+    if action in ["buy", "sell"] and bot_active:
+        try:
+            # Load market info for quantity precision
+            markets = exchange.load_markets()
+            symbol_info = markets[SYMBOL]
+            quantity_precision = symbol_info['precision']['amount']
+            base_asset = SYMBOL.split('/')[0]
+
+            # Calculate quantity for exactly 11.00 USDT
+            trade_value_usdt = AMOUNTS
+            quantity = trade_value_usdt / close_price
+            quantity = exchange.amount_to_precision(SYMBOL, quantity)
+            actual_trade_value = float(quantity) * close_price
+            logger.info(f"Preparing order: action={action}, symbol={SYMBOL}, quantity={quantity}, price={close_price:.2f}, trade_value={actual_trade_value:.2f} USDT")
+
+            # Verify balance
+            balance = exchange.fetch_balance()
+            usdt_balance = balance['USDT']['free'] if 'USDT' in balance else 0
+            asset_balance = balance[base_asset]['free'] if base_asset in balance else 0
+            logger.debug(f"Balances: USDT={usdt_balance:.2f}, {base_asset}={asset_balance:.8f}")
+
+            if action == "buy":
+                if usdt_balance < trade_value_usdt:
+                    logger.error(f"Insufficient USDT balance: {usdt_balance:.2f} < {trade_value_usdt:.2f}")
+                    action = "hold"
+                    msg = f"Insufficient USDT balance: {usdt_balance:.2f}"
+                    return action, stop_loss, take_profit, order_id
                 order = exchange.create_market_buy_order(SYMBOL, quantity)
                 order_id = str(order['id'])
-                executed_action = "buy"
-                tracking_has_buy = True
-                tracking_buy_price = current_price
-                logger.info(f"Placed market buy order: {order_id}, quantity={quantity}, price={current_price:.2f}")
-                msg = f"BUY {SYMBOL} at {current_price:.2f}, Order ID: {order_id}"
-            except Exception as e:
-                logger.error(f"Error placing market buy order: {e}")
-                executed_action = "hold"
-                msg = f"HOLD {SYMBOL} at {current_price:.2f} (Buy failed: {str(e)})"
-        else:
-            executed_action = "hold"
-            msg = f"HOLD {SYMBOL} at {current_price:.2f} (Paused Buy2 due to loss or tracking disabled)"
-    elif action == "sell" and position == "long" and tracking_has_buy:
-        try:
-            order = exchange.create_market_sell_order(SYMBOL, quantity)
-            order_id = str(order['id'])
-            executed_action = "sell"
-            last_sell_profit = primary_profit
-            tracking_enabled = last_sell_profit > 0
-            return_profit = current_price - tracking_buy_price if tracking_buy_price is not None else 0
-            total_return_profit += return_profit
-            tracking_has_buy = False
-            tracking_buy_price = None
-            logger.info(f"Placed market sell order: {order_id}, quantity={quantity}, price={current_price:.2f}, profit={primary_profit:.2f}, return_profit={return_profit:.2f}")
-            msg = f"SELL {SYMBOL} at {current_price:.2f}, Profit: {primary_profit:.2f}, Order ID: {order_id}, Return Profit: {return_profit:.2f}"
+                live_position = "long"
+                live_buy_price = close_price
+                msg = f"{msg}, Order ID: {order_id}"
+                logger.info(f"Placed live buy order: {order_id}, quantity={quantity}, price={close_price:.2f}, trade_value={actual_trade_value:.2f} USDT")
+            elif action == "sell" and live_position == "long":
+                if asset_balance < float(quantity):
+                    logger.error(f"Insufficient {base_asset} balance: {asset_balance:.8f} < {quantity}")
+                    action = "hold"
+                    msg = f"Insufficient {base_asset} balance: {asset_balance:.8f}"
+                    return action, stop_loss, take_profit, order_id
+                order = exchange.create_market_sell_order(SYMBOL, quantity)
+                order_id = str(order['id'])
+                live_position = None
+                msg = f"{msg}, Order ID: {order_id}"
+                logger.info(f"Placed live sell order: {order_id}, quantity={quantity}, price={close_price:.2f}, profit={profit:.2f}, trade_value={actual_trade_value:.2f} USDT")
+        except ccxt.InsufficientFunds as e:
+            logger.error(f"Insufficient funds for order: {e}")
+            action = "hold"
+            order_id = None
+            msg = f"Insufficient funds: {str(e)}"
+        except ccxt.InvalidOrder as e:
+            logger.error(f"Invalid order parameters: {e}")
+            action = "hold"
+            order_id = None
+            msg = f"Invalid order: {str(e)}"
+        except ccxt.AuthenticationError as e:
+            logger.error(f"Authentication error: {e}")
+            action = "hold"
+            order_id = None
+            msg = f"Authentication error: {str(e)}"
         except Exception as e:
-            logger.error(f"Error placing market sell order: {e}")
-            executed_action = "hold"
-            msg = f"HOLD {SYMBOL} at {current_price:.2f} (Sell failed: {str(e)})"
-    else:
-        executed_action = "hold"
-        msg = f"HOLD {SYMBOL} at {current_price:.2f} (Invalid action or state: action={action}, position={position}, tracking_has_buy={tracking_has_buy})"
+            logger.error(f"Error placing live order: {e}", exc_info=True)
+            action = "hold"
+            order_id = None
+            msg = f"Error placing order: {str(e)}"
 
-    logger.debug(f"handle_second_strategy result: executed_action={executed_action}, order_id={order_id}, return_profit={return_profit:.2f}, msg={msg}")
-    return executed_action, return_profit, msg, order_id
+    logger.debug(f"Third strategy: action={action}, stop_loss={stop_loss}, take_profit={take_profit}, order_id={order_id}, return_profit={return_profit:.2f}, msg={msg}")
+    return action, stop_loss, take_profit, order_id
 
 # Telegram message sending
 def send_telegram_message(signal, bot_token, chat_id, retries=3, delay=5):
@@ -484,13 +566,7 @@ KDJ J: {signal['j']:.2f}
 {f"Order ID: {signal['order_id']}" if signal['order_id'] else ""}
 """
             bot.send_message(chat_id=chat_id, text=message)
-            logger.info(f"Telegram message sent successfully: {signal['action']}, order_id={signal['order_id']}")
-            return
-        except telegram.error.InvalidToken:
-            logger.error(f"Invalid Telegram bot token: {bot_token}")
-            return
-        except telegram.error.ChatNotFound:
-            logger.error(f"Chat not found for chat_id: {chat_id}")
+            logger.info(f"Telegram message sent successfully")
             return
         except Exception as e:
             logger.error(f"Error sending Telegram message (attempt {attempt + 1}/{retries}): {e}")
@@ -508,50 +584,15 @@ def get_next_timeframe_boundary(current_time, timeframe_seconds):
 
 # Trading bot
 def trading_bot():
-    global bot_active, position, buy_price, total_profit, pause_duration, pause_start, conn, tracking_has_buy, tracking_buy_price
+    global bot_active, position, buy_price, total_profit, pause_duration, pause_start, conn, live_position, live_buy_price, live_total_profit
     bot = None
     try:
         bot = Bot(token=BOT_TOKEN)
         logger.info("Telegram bot initialized successfully")
-        # Send test message to verify Telegram setup
-        test_signal = {
-            'time': datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S"),
-            'action': 'test',
-            'symbol': SYMBOL,
-            'price': 0.0,
-            'open_price': 0.0,
-            'close_price': 0.0,
-            'volume': 0.0,
-            'percent_change': 0.0,
-            'stop_loss': None,
-            'take_profit': None,
-            'profit': 0.0,
-            'total_profit': 0.0,
-            'return_profit': 0.0,
-            'total_return_profit': 0.0,
-            'ema1': 0.0,
-            'ema2': 0.0,
-            'rsi': 0.0,
-            'k': 0.0,
-            'd': 0.0,
-            'j': 0.0,
-            'diff': 0.0,
-            'message': f"Test message for {SYMBOL} bot startup",
-            'timeframe': TIMEFRAME,
-            'order_id': None,
-            'strategy': 'test'
-        }
-        send_telegram_message(test_signal, BOT_TOKEN, CHAT_ID)
-        store_signal(test_signal)
     except telegram.error.InvalidToken:
         logger.warning("Invalid Telegram bot token. Telegram functionality disabled.")
-        bot = None
-    except telegram.error.ChatNotFound:
-        logger.warning(f"Chat not found for chat_id: {CHAT_ID}. Telegram functionality disabled.")
-        bot = None
     except Exception as e:
         logger.error(f"Error initializing Telegram bot: {e}")
-        bot = None
 
     last_update_id = 0
     df = None
@@ -611,7 +652,7 @@ def trading_bot():
                 return
 
     timeframe_seconds = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '1d': 86400}.get(TIMEFRAME, TIMEFRAMES)
-    
+
     current_time = datetime.now(EU_TZ)
     seconds_to_wait = get_next_timeframe_boundary(current_time, timeframe_seconds)
     logger.info(f"Waiting {seconds_to_wait:.2f} seconds to align with next {TIMEFRAME} boundary")
@@ -635,12 +676,8 @@ def trading_bot():
                     pause_start = None
                     pause_duration = 0
                     position = None
-                    buy_price = None
-                    tracking_has_buy = False
-                    tracking_buy_price = None
+                    live_position = None
                     logger.info("Bot resumed after pause")
-                    if bot:
-                        bot.send_message(chat_id=CHAT_ID, text="Bot resumed after pause.")
 
             latest_data = get_simulated_price()
             if pd.isna(latest_data['Close']):
@@ -664,27 +701,41 @@ def trading_bot():
                             elif text == '/stop':
                                 with bot_lock:
                                     if bot_active and position == "long":
-                                        profit = current_price - buy_price if buy_price is not None else 0
+                                        profit = current_price - buy_price
                                         total_profit += profit
-                                        usdt_amount = 11.00
-                                        try:
-                                            quantity = exchange.amount_to_precision(SYMBOL, usdt_amount / current_price)
-                                            order = exchange.create_market_sell_order(SYMBOL, quantity)
-                                            order_id = str(order['id'])
-                                            logger.info(f"Placed market sell order on /stop: {order_id}, quantity={quantity}, price={current_price:.2f}")
-                                        except Exception as e:
-                                            logger.error(f"Error placing market sell order on /stop: {e}")
-                                            order_id = None
-                                        executed_action, return_profit, msg, order_id = handle_second_strategy("sell", current_price, profit, position, buy_price)
-                                        signal = create_signal(executed_action, current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, f"Bot stopped via Telegram: {msg}", order_id, "second")
+                                        return_profit, msg = handle_second_strategy("sell", current_price, profit)
+                                        signal = create_signal("sell", current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, f"Bot stopped via Telegram{msg}", None, "primary")
                                         store_signal(signal)
-                                        if bot and executed_action != "hold":
+                                        if bot:
                                             send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
                                         position = None
-                                        buy_price = None
-                                        tracking_has_buy = False
-                                        tracking_buy_price = None
-                                        logger.debug("Position and tracking state cleared after /stop")
+                                    if bot_active and live_position == "long":
+                                        markets = exchange.load_markets()
+                                        symbol_info = markets[SYMBOL]
+                                        quantity_precision = symbol_info['precision']['amount']
+                                        base_asset = SYMBOL.split('/')[0]
+                                        trade_value_usdt = AMOUNTS
+                                        quantity = trade_value_usdt / current_price
+                                        quantity = exchange.amount_to_precision(SYMBOL, quantity)
+                                        balance = exchange.fetch_balance()
+                                        asset_balance = balance[base_asset]['free'] if base_asset in balance else 0
+                                        if asset_balance < float(quantity):
+                                            logger.error(f"Insufficient {base_asset} balance for stop: {asset_balance:.8f} < {quantity}")
+                                            signal = create_signal("hold", current_price, latest_data, df, 0, live_total_profit, 0, live_total_return_profit, f"Failed to stop: Insufficient {base_asset} balance", None, "third")
+                                            store_signal(signal)
+                                            if bot:
+                                                send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
+                                        else:
+                                            order = exchange.create_market_sell_order(SYMBOL, quantity)
+                                            order_id = str(order['id'])
+                                            profit = current_price - live_buy_price
+                                            live_total_profit += profit
+                                            return_profit, msg = handle_second_strategy("sell", current_price, profit)
+                                            signal = create_signal("sell", current_price, latest_data, df, profit, live_total_profit, return_profit, live_total_return_profit, f"Live bot stopped via Telegram{msg}, Order ID: {order_id}", order_id, "third")
+                                            store_signal(signal)
+                                            if bot:
+                                                send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
+                                            live_position = None
                                     bot_active = False
                                 bot.send_message(chat_id=command_chat_id, text="Bot stopped.")
                                 upload_to_github(db_path, 're_bot.db')
@@ -694,27 +745,41 @@ def trading_bot():
                                     pause_duration = multiplier * timeframe_seconds
                                     pause_start = datetime.now(EU_TZ)
                                     if position == "long":
-                                        profit = current_price - buy_price if buy_price is not None else 0
+                                        profit = current_price - buy_price
                                         total_profit += profit
-                                        usdt_amount = 11.00
-                                        try:
-                                            quantity = exchange.amount_to_precision(SYMBOL, usdt_amount / current_price)
-                                            order = exchange.create_market_sell_order(SYMBOL, quantity)
-                                            order_id = str(order['id'])
-                                            logger.info(f"Placed market sell order on /stopN: {order_id}, quantity={quantity}, price={current_price:.2f}")
-                                        except Exception as e:
-                                            logger.error(f"Error placing market sell order on /stopN: {e}")
-                                            order_id = None
-                                        executed_action, return_profit, msg, order_id = handle_second_strategy("sell", current_price, profit, position, buy_price)
-                                        signal = create_signal(executed_action, current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, f"Bot paused via Telegram: {msg}", order_id, "second")
+                                        return_profit, msg = handle_second_strategy("sell", current_price, profit)
+                                        signal = create_signal("sell", current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, f"Bot paused via Telegram{msg}", None, "primary")
                                         store_signal(signal)
-                                        if bot and executed_action != "hold":
+                                        if bot:
                                             send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
                                         position = None
-                                        buy_price = None
-                                        tracking_has_buy = False
-                                        tracking_buy_price = None
-                                        logger.debug("Position and tracking state cleared after /stopN")
+                                    if live_position == "long":
+                                        markets = exchange.load_markets()
+                                        symbol_info = markets[SYMBOL]
+                                        quantity_precision = symbol_info['precision']['amount']
+                                        base_asset = SYMBOL.split('/')[0]
+                                        trade_value_usdt = AMOUNTS
+                                        quantity = trade_value_usdt / current_price
+                                        quantity = exchange.amount_to_precision(SYMBOL, quantity)
+                                        balance = exchange.fetch_balance()
+                                        asset_balance = balance[base_asset]['free'] if base_asset in balance else 0
+                                        if asset_balance < float(quantity):
+                                            logger.error(f"Insufficient {base_asset} balance for pause: {asset_balance:.8f} < {quantity}")
+                                            signal = create_signal("hold", current_price, latest_data, df, 0, live_total_profit, 0, live_total_return_profit, f"Failed to pause: Insufficient {base_asset} balance", None, "third")
+                                            store_signal(signal)
+                                            if bot:
+                                                send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
+                                        else:
+                                            order = exchange.create_market_sell_order(SYMBOL, quantity)
+                                            order_id = str(order['id'])
+                                            profit = current_price - live_buy_price
+                                            live_total_profit += profit
+                                            return_profit, msg = handle_second_strategy("sell", current_price, profit)
+                                            signal = create_signal("sell", current_price, latest_data, df, profit, live_total_profit, return_profit, live_total_return_profit, f"Live bot paused via Telegram{msg}, Order ID: {order_id}", order_id, "third")
+                                            store_signal(signal)
+                                            if bot:
+                                                send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
+                                            live_position = None
                                     bot_active = False
                                 bot.send_message(chat_id=command_chat_id, text=f"Bot paused for {pause_duration/60} minutes.")
                                 upload_to_github(db_path, 're_bot.db')
@@ -723,10 +788,9 @@ def trading_bot():
                                     if not bot_active:
                                         bot_active = True
                                         position = None
-                                        buy_price = None
-                                        tracking_has_buy = False
-                                        tracking_buy_price = None
-                                        logger.debug("Position and tracking state cleared after /start")
+                                        live_position = None
+                                        pause_start = None
+                                        pause_duration = 0
                                         bot.send_message(chat_id=command_chat_id, text="Bot started.")
                             elif text == '/status':
                                 status = "active" if bot_active else f"paused for {int(pause_duration - (datetime.now(EU_TZ) - pause_start).total_seconds())} seconds" if pause_start else "stopped"
@@ -738,10 +802,8 @@ def trading_bot():
                         last_update_id = update.update_id + 1
                 except telegram.error.InvalidToken:
                     logger.warning("Invalid Telegram bot token. Skipping Telegram updates.")
-                    bot = None
                 except telegram.error.ChatNotFound:
-                    logger.warning(f"Chat not found for chat_id: {CHAT_ID}. Skipping Telegram updates.")
-                    bot = None
+                    logger.error(f"Chat not found for chat_id: {CHAT_ID}. Skipping Telegram updates.")
                 except Exception as e:
                     logger.error(f"Error processing Telegram updates: {e}")
 
@@ -759,57 +821,66 @@ def trading_bot():
             prev_close = df['Close'].iloc[-2] if len(df) >= 2 else df['Close'].iloc[-1]
             percent_change = ((current_price - prev_close) / prev_close * 100) if prev_close != 0 else 0.0
             recommended_action, stop_loss, take_profit = ai_decision(df, position=position, buy_price=buy_price)
+            live_action, live_stop_loss, live_take_profit, order_id = third_strategy(df, position=live_position, buy_price=live_buy_price)
 
             with bot_lock:
+                action = "hold"
                 profit = 0
-                if recommended_action == "sell" and position == "long" and buy_price is not None:
-                    profit = current_price - buy_price
-
-                # Create and store primary strategy signal
-                primary_msg = f"AI Decision: {recommended_action.upper()} {SYMBOL} at {current_price:.2f}"
-                primary_signal = create_signal(
-                    recommended_action, current_price, latest_data, df, 
-                    profit if recommended_action == "sell" else 0, total_profit, 
-                    0, total_return_profit, primary_msg, None, "primary"
-                )
-                primary_signal['stop_loss'] = stop_loss
-                primary_signal['take_profit'] = take_profit
-                store_signal(primary_signal)
-                if bot_active and recommended_action != "hold" and bot:
-                    threading.Thread(target=send_telegram_message, args=(primary_signal, BOT_TOKEN, CHAT_ID), daemon=True).start()
-
-                # Process second strategy
-                executed_action, return_profit, msg, order_id = handle_second_strategy(recommended_action, current_price, profit, position, buy_price)
-
-                # Update position only if an order was executed
-                if order_id and executed_action == "buy":
+                return_profit = 0
+                msg = f"HOLD {SYMBOL} at {current_price:.2f}"
+                if bot_active and recommended_action == "buy" and position is None:
                     position = "long"
                     buy_price = current_price
-                    tracking_has_buy = True
-                    tracking_buy_price = current_price
-                    logger.debug(f"Position updated to long: buy_price={buy_price:.2f}, tracking_has_buy={tracking_has_buy}, tracking_buy_price={tracking_buy_price:.2f}")
-                elif order_id and executed_action == "sell":
+                    action = "buy"
+                    return_profit, msg_suffix = handle_second_strategy("buy", current_price, 0)
+                    msg = f"BUY {SYMBOL} at {current_price:.2f}{msg_suffix}"
+                elif bot_active and recommended_action == "sell" and position == "long":
+                    profit = current_price - buy_price
                     total_profit += profit
+                    return_profit, msg_suffix = handle_second_strategy("sell", current_price, profit)
                     position = None
-                    buy_price = None
-                    tracking_has_buy = False
-                    tracking_buy_price = None
-                    logger.debug(f"Position cleared after sell: total_profit={total_profit:.2f}, tracking_has_buy={tracking_has_buy}")
+                    action = "sell"
+                    msg = f"SELL {SYMBOL} at {current_price:.2f}, Profit: {profit:.2f}{msg_suffix}"
+                    if stop_loss and current_price <= stop_loss:
+                        msg += " (Stop-Loss)"
+                    elif take_profit and current_price >= take_profit:
+                        msg += " (Take-Profit)"
 
-                # Store second strategy signal only if an order was placed
-                if order_id:
-                    second_signal = create_signal(
-                        executed_action, current_price, latest_data, df, 
-                        profit if executed_action == "sell" else 0, total_profit, 
-                        return_profit, total_return_profit, msg, order_id, "second"
-                    )
-                    second_signal['stop_loss'] = stop_loss
-                    second_signal['take_profit'] = take_profit
-                    store_signal(second_signal)
-                    if bot_active and bot:
-                        threading.Thread(target=send_telegram_message, args=(second_signal, BOT_TOKEN, CHAT_ID), daemon=True).start()
+                signal = create_signal(action, current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, msg, None, "primary")
+                store_signal(signal)
+                logger.debug(f"Generated primary signal: action={signal['action']}, time={signal['time']}, price={signal['price']:.2f}")
 
-            if bot_active and (recommended_action != "hold" or order_id):
+                live_msg = f"LIVE HOLD {SYMBOL} at {current_price:.2f}"
+                live_profit = 0
+                live_return_profit = 0
+                if bot_active and live_action == "buy" and live_position is None:
+                    live_position = "long"
+                    live_buy_price = current_price
+                    live_return_profit, msg_suffix = handle_second_strategy("buy", current_price, 0)
+                    live_msg = f"LIVE BUY {SYMBOL} at {current_price:.2f}{msg_suffix}, Order ID: {order_id}"
+                elif bot_active and live_action == "sell" and live_position == "long":
+                    live_profit = current_price - live_buy_price
+                    live_total_profit += live_profit
+                    live_return_profit, msg_suffix = handle_second_strategy("sell", current_price, live_profit)
+                    live_msg = f"LIVE SELL {SYMBOL} at {current_price:.2f}, Profit: {live_profit:.2f}{msg_suffix}, Order ID: {order_id}"
+                    if live_stop_loss and current_price <= live_stop_loss:
+                        live_msg += " (Stop-Loss)"
+                    elif live_take_profit and current_price >= live_take_profit:
+                        live_msg += " (Take-Profit)"
+                    live_position = None
+
+                if live_action != "hold":
+                    live_signal = create_signal(live_action, current_price, latest_data, df, live_profit, live_total_profit, live_return_profit, live_total_return_profit, live_msg, order_id, "third")
+                    store_signal(live_signal)
+                    logger.debug(f"Generated live signal: action={live_signal['action']}, time={live_signal['time']}, price={live_signal['price']:.2f}, order_id={order_id}")
+
+                if bot_active and (action != "hold" or live_action != "hold") and bot:
+                    if action != "hold":
+                        threading.Thread(target=send_telegram_message, args=(signal, BOT_TOKEN, CHAT_ID), daemon=True).start()
+                    if live_action != "hold":
+                        threading.Thread(target=send_telegram_message, args=(live_signal, BOT_TOKEN, CHAT_ID), daemon=True).start()
+
+            if bot_active and (action != "hold" or live_action != "hold"):
                 upload_to_github(db_path, 're_bot.db')
 
             loop_end_time = datetime.now(EU_TZ)
@@ -887,7 +958,7 @@ def store_signal(signal):
             ))
             conn.commit()
             elapsed = time.time() - start_time
-            logger.debug(f"Signal stored successfully: action={signal['action']}, strategy={signal['strategy']}, time={signal['time']}, order_id={signal['order_id']}, db_write_time={elapsed:.3f}s")
+            logger.debug(f"Signal stored successfully: action={signal['action']}, strategy={signal['strategy']}, time={signal['time']}, db_write_time={elapsed:.3f}s")
         except Exception as e:
             elapsed = time.time() - start_time
             logger.error(f"Error storing signal after {elapsed:.3f}s: {e}")
