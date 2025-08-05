@@ -1,4 +1,4 @@
-# pp
+# in prg
 import os
 import pandas as pd
 import numpy as np
@@ -381,7 +381,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
             action = "sell"
 
     if action == "hold" and position is None:
-        if close_price > open_price and kdj_j > kdj_d:
+        if (kdj_j < -34.00 and ema1 > ema2 or kdj_j > kdj_d) or (close_price > open_price and kdj_j > kdj_d):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
 
@@ -622,7 +622,7 @@ def trading_bot():
                         profit = latest_data['Close'] - buy_price
                         total_profit += profit
                         return_profit, msg = handle_second_strategy("sell", latest_data['Close'], profit)
-                        usdt_amount = AMOUNTS
+                        usdt_amount = 11.00
                         quantity = exchange.amount_to_precision(SYMBOL, usdt_amount / latest_data['Close'])
                         order_id = None
                         try:
@@ -692,7 +692,7 @@ def trading_bot():
                                         profit = current_price - buy_price
                                         total_profit += profit
                                         return_profit, msg = handle_second_strategy("sell", current_price, profit)
-                                        usdt_amount = AMOUNTS
+                                        usdt_amount = 11.00
                                         quantity = exchange.amount_to_precision(SYMBOL, usdt_amount / current_price)
                                         order_id = None
                                         try:
@@ -718,7 +718,7 @@ def trading_bot():
                                         profit = current_price - buy_price
                                         total_profit += profit
                                         return_profit, msg = handle_second_strategy("sell", current_price, profit)
-                                        usdt_amount = AMOUNTS
+                                        usdt_amount = 11.00
                                         quantity = exchange.amount_to_precision(SYMBOL, usdt_amount / current_price)
                                         order_id = None
                                         try:
@@ -1071,4 +1071,3 @@ if __name__ == "__main__":
     logger.info(f"Starting Flask server on port {port}")
     asyncio.run(main())
     app.run(host='0.0.0.0', port=port, debug=False)
-    
