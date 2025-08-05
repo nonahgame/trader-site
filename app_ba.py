@@ -485,7 +485,7 @@ def third_strategy(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=
         try:
             # Calculate quantity for minimum 11.00 USDT trade value
             min_trade_value = AMOUNTS #11.00  # Minimum trade value in USDT
-            quantity = min_trade_value #/ close_price
+            quantity = min_trade_value / close_price
             # Fetch market info for quantity precision
             markets = exchange.load_markets()
             symbol_info = markets[SYMBOL]
