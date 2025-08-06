@@ -16,7 +16,6 @@
             padding: 10px;
             margin-bottom: 20px;
             position: relative;
-            background-color: #000000;
         }
         .signal::before {
             content: '';
@@ -25,7 +24,7 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background-color: rgba(0, 0, 0, 0.5); /* Reduced opacity for better readability */
+            background-color: rgba(0, 0, 0, 0.7);
             z-index: 1;
         }
         .signal h2 {
@@ -63,17 +62,6 @@
             white-space: nowrap;
             color: white !important;
         }
-        .trades th.time, .trades td.time { width: 15%; }
-        .trades th.action, .trades td.action { width: 10%; }
-        .trades th.strategy, .trades td.strategy { width: 10%; }
-        .trades th.price, .trades td.price { width: 10%; }
-        .trades th.percent_change, .trades td.percent_change { width: 10%; }
-        .trades th.profit, .trades td.profit { width: 10%; }
-        .trades th.total_profit, .trades td.total_profit { width: 10%; }
-        .trades th.return_profit, .trades td.return_profit { width: 10%; }
-        .trades th.total_return_profit, .trades td.total_return_profit { width: 10%; }
-        .trades th.order_id, .trades td.order_id { width: 10%; }
-        .trades th.message, .trades td.message { width: 25%; white-space: normal; }
         .trades td.action-buy {
             color: green !important;
         }
@@ -113,18 +101,18 @@
         .diff-negative {
             color: red !important;
         }
+        .macd-positive {
+            color: green !important;
+        }
+        .macd-negative {
+            color: red !important;
+        }
         .error {
             color: red !important;
-            padding: 10px;
-            border: 1px solid red;
-            margin-bottom: 20px;
         }
         @media (max-width: 768px) {
             .trades table {
                 font-size: 12px;
-            }
-            .trades th, .trades td {
-                padding: 4px;
             }
         }
     </style>
@@ -135,16 +123,11 @@
     <p>Timeframe: {{ timeframe }}</p>
     <p>Stop Time: {{ stop_time }}</p>
     <p>Current Time: {{ current_time }}</p>
-    {% if error %}
-    <div class="error">
-        <p>{{ error }}</p>
-    </div>
-    {% endif %}
     <div class="signal">
         <h2>Latest Signal</h2>
         {% if signal %}
         <ul>
-            <li>Time: {{ signal.time | datetimeformat }}</li>
+            <li>Time: {{ signal.time }}</li>
             <li>Timeframe: {{ signal.timeframe }}</li>
             <li>Strategy: {{ signal.strategy }}</li>
             <li>Message: {{ signal.message }}</li>
@@ -159,6 +142,9 @@
             <li>KDJ K: {{ signal.k | round(2) }}</li>
             <li>KDJ D: {{ signal.d | round(2) }}</li>
             <li>KDJ J: {{ signal.j | round(2) }}</li>
+            <li>MACD (DIF): {{ signal.macd | round(2) }}</li>
+            <li>MACD Signal (DEA): {{ signal.macd_signal | round(2) }}</li>
+            <li>MACD Hist: {{ signal.macd_hist | round(2) }}</li>
             {% if signal.stop_loss is not none %}
             <li>Stop-Loss: {{ signal.stop_loss | round(2) }}</li>
             {% endif %}
@@ -186,34 +172,35 @@
         {% if trades %}
         <table>
             <tr>
-                <th class="time">Time</th>
-                <th class="action">Action</th>
-                <th class="strategy">Strategy</th>
-                <th class="price">Price</th>
-                <th class="percent_change">% Change</th>
-                <th class="profit">Profit</th>
-                <th class="total_profit">Total Profit</th>
-                <th class="return_profit">Return Profit</th>
-                <th class="total_return_profit">Total Return Profit</th>
-                <th class="order_id">Order ID</th>
-                <th class="message">Message</th>
+                <th>Time</th>
+                <th>Action</th>
+                <th>Strategy</th>
+                <th>Price</th>
+                <th>% Change</th>
+                <th>Profit</th>
+                <th>Total Profit</th>
+                <th>Return Profit</th>
+                <th>Total Return Profit</th>
+                <th>Order ID</th>
+                <th>Message</th>
             </tr>
             {% for trade in trades %}
             <tr>
-                <td class="time">{{ trade.time | datetimeformat }}</td>
-                <td class="action {% if trade.action == 'buy' %}action-buy{% elif trade.action == 'sell' %}action-sell{% endif %}">{{ trade.action }}</td>
-                <td class="strategy">{{ trade.strategy }}</td>
-                <td class="price">{{ trade.price | round(2) }}</td>
-                <td class="percent_change {% if trade.percent_change|float < 0 %}negative{% else %}non-negative{% endif %}">{{ trade.percent_change|float | round(2) }}%</td>
-                <td class="profit {% if trade.profit is not none and trade.profit|float < 0 %}negative{% else %}non-negative{% endif %}">{{ trade.profit | round(2) if trade.profit is not none else "N/A" }}</td>
-                <td class="total_profit {% if trade.total_profit is not none and trade.total_profit|float < 0 %}negative{% else %}non-negative{% endif %}">{{ trade.total_profit | round(2) if trade.total_profit is not none else "N/A" }}</td>
-                <td class="return_profit {% if trade.return_profit is not none and trade.return_profit|float < 0 %}negative{% else %}non-negative{% endif %}">{{ trade.return_profit | round(2) if trade.return_profit is not none else "N/A" }}</td>
-                <td class="total_return_profit {% if trade.total_return_profit is not none and trade.total_return_profit|float < 0 %}negative{% else %}non-negative{% endif %}">{{ trade.total_return_profit | round(2) if trade.total_return_profit is not none else "N/A" }}</td>
-                <td class="order_id">{{ trade.order_id if trade.order_id else "N/A" }}</td>
-                <td class="message">
+                <td>{{ trade.time }}</td>
+                <td class="{% if trade.action == 'buy' %}action-buy{% elif trade.action == 'sell' %}action-sell{% endif %}">{{ trade.action }}</td>
+                <td>{{ trade.strategy }}</td>
+                <td>{{ trade.price | round(2) }}</td>
+                <td class="{% if trade.percent_change|float < 0 %}negative{% else %}non-negative{% endif %}">{{ trade.percent_change|float | round(2) }}%</td>
+                <td class="{% if trade.profit is not none and trade.profit|float < 0 %}negative{% else %}non-negative{% endif %}">{{ trade.profit | round(2) if trade.profit is not none else "N/A" }}</td>
+                <td class="{% if trade.total_profit is not none and trade.total_profit|float < 0 %}negative{% else %}non-negative{% endif %}">{{ trade.total_profit | round(2) if trade.total_profit is not none else "N/A" }}</td>
+                <td class="{% if trade.return_profit is not none and trade.return_profit|float < 0 %}negative{% else %}non-negative{% endif %}">{{ trade.return_profit | round(2) if trade.return_profit is not none else "N/A" }}</td>
+                <td class="{% if trade.total_return_profit is not none and trade.total_return_profit|float < 0 %}negative{% else %}non-negative{% endif %}">{{ trade.total_return_profit | round(2) if trade.total_return_profit is not none else "N/A" }}</td>
+                <td>{{ trade.order_id if trade.order_id else "N/A" }}</td>
+                <td>
                     KDJ J: <span class="{% if trade.j|float < 0 %}kdj-negative{% elif trade.j|float > 65 %}kdj-overbought{% else %}kdj-neutral{% endif %}">{{ trade.j | round(2) }}</span>,
                     RSI: <span class="{% if trade.rsi|float < 15 %}rsi-oversold{% elif trade.rsi|float > 60 %}rsi-overbought{% else %}rsi-neutral{% endif %}">{{ trade.rsi | round(2) }}</span>,
                     Diff: <span class="{% if trade.diff|float > 0 %}diff-positive{% else %}diff-negative{% endif %}">{{ trade.diff | round(2) }}</span>,
+                    MACD: <span class="{% if trade.macd|float > 0 %}macd-positive{% else %}macd-negative{% endif %}">{{ trade.macd | round(2) }}</span>,
                     {{ trade.message }}
                 </td>
             </tr>
