@@ -390,7 +390,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
             action = "sell"
 
     if action == "hold" and position is None:
-        if (kdj_j < -34.00 and ema1 > ema2 or kdj_j > kdj_d) or (close_price > open_price and kdj_j > kdj_d):
+        if (kdj_j < -34.00 and ema1 > ema2 or kdj_j > kdj_d) or (close_price > open_price and kdj_j > kdj_d or ema1 > ema2):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
 
