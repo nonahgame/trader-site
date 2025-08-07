@@ -396,7 +396,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         if (kdj_j < -34.00 and ema1 > ema2 or kdj_j > kdj_d): # or (close_price > open_price and kdj_j > kdj_d or ema1 > ema2 and macd > macd_signal):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
-        elif (close_price > open_price and kdj_j > kdj_d or ema1 > ema2 and macd > macd_signal):
+        elif (close_price > open_price and kdj_j > kdj_d and macd > macd_signal or ema1 > ema2 and kdj_j < 17):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
 
