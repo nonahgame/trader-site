@@ -382,7 +382,10 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         elif close_price >= take_profit:
             logger.info("Take-profit triggered.")
             action = "sell"
-        elif (close_price < open_price and kdj_j > kdj_d and macd > macd_signal) or (kdj_j < kdj_d and macd < macd_signal and close_price < open_price) or (close_price < open_price and kdj_j < kdj_d and macd > macd_signal):
+        elif (close_price < open_price and kdj_j > kdj_d and macd > macd_signal) or (kdj_j < kdj_d and macd < macd_signal and close_price < open_price): # or (close_price < open_price and kdj_j < kdj_d and macd > macd_signal):
+            logger.info(f"Sell condition met: close={close_price:.2f}, open={open_price:.2f}, kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, DIF={macd:.2f}, DEA={macd_signal:.2f}")
+            action = "sell"
+        elif (close_price < open_price and kdj_j < kdj_d and macd > macd_signal):
             logger.info(f"Sell condition met: close={close_price:.2f}, open={open_price:.2f}, kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, DIF={macd:.2f}, DEA={macd_signal:.2f}")
             action = "sell"
         elif kdj_j > 143.00:
@@ -390,7 +393,10 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
             action = "sell"
 
     if action == "hold" and position is None:
-        if (kdj_j < -34.00 and ema1 > ema2 or kdj_j > kdj_d) or (close_price > open_price and kdj_j > kdj_d or ema1 > ema2 and macd > macd_signal):
+        if (kdj_j < -34.00 and ema1 > ema2 or kdj_j > kdj_d): # or (close_price > open_price and kdj_j > kdj_d or ema1 > ema2 and macd > macd_signal):
+            logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
+            action = "buy"
+         elif (close_price > open_price and kdj_j > kdj_d or ema1 > ema2 and macd > macd_signal):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
 
