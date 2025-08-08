@@ -365,7 +365,7 @@ def add_technical_indicators(df):
         final_upperband = basic_upperband.copy()
         final_lowerband = basic_lowerband.copy()
         
-        # Vectorized Supertrend calculation to reduce loop overhead
+        # Vectorized Supertrend calculation
         for i in range(1, len(df)):
             if (basic_upperband.iloc[i] < final_upperband.iloc[i-1]) or (df['Close'].iloc[i-1] > final_upperband.iloc[i-1]):
                 final_upperband.iloc[i] = basic_upperband.iloc[i]
@@ -377,13 +377,17 @@ def add_technical_indicators(df):
                 final_lowerband.iloc[i] = final_lowerband.iloc[i-1]
 
         supertrend = final_upperband.where(df['Close'] <= final_upperband, final_lowerband)
-        supertrend_trend = (df['Close'] > final_upperband.shift()).where(df['Close'] > final_upperband.shift(), 
-                            (df['Close'] < final_lowerband.shift())).where(df['Close'] < final_lowerband.shift(), 
-                            pd.Series(True, index=df.index).shift().fillna(True))
+        # Keep supertrend_trend as boolean for signal calculation
+        supertrend_trend = df['Close'] > final_upperband.shift()
+        supertrend_trend = supertrend_trend.fillna(True)  # Default to True for initial values
         df['supertrend'] = supertrend
+        # Store supertrend_trend as int (0/1) only in the final DataFrame
         df['supertrend_trend'] = supertrend_trend.astype(int)  # 1 for uptrend, 0 for downtrend
-        df['supertrend_signal'] = np.where(df['supertrend_trend'] & ~df['supertrend_trend'].shift().fillna(True), 'buy',
-                                         np.where(~df['supertrend_trend'] & df['supertrend_trend'].shift().fillna(True), 'sell', None))
+        # Calculate supertrend_signal using boolean operations
+        df['supertrend_signal'] = np.where(
+            supertrend_trend & ~supertrend_trend.shift().fillna(True), 'buy',
+            np.where(~supertrend_trend & supertrend_trend.shift().fillna(True), 'sell', None)
+        )
 
         # Stochastic RSI
         stoch_rsi_len = 14
