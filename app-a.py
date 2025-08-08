@@ -287,7 +287,7 @@ def setup_database():
 logger.info("Initializing database in main thread")
 if not setup_database():
     logger.error("Failed to initialize database in main thread. Flask routes may fail.")
-*
+
 # Fetch price data
 def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, retries=3, delay=5):
     global last_valid_price
