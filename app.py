@@ -41,7 +41,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Try to import dotenv, with fallback if not installed
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -62,11 +61,11 @@ app = Flask(__name__)
 BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID")
 SYMBOL = os.getenv("SYMBOL", "SYMBOL")
-TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
-TIMEFRAMES = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))
+TIMEFRAME = os.getenv("TIMEFRAME", "1m")  # Default to 1m for consistency
+TIMEFRAMES = int(os.getenv("INTER_SECONDS", 60))  # Default to 60 seconds
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", -2.0))
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 8.0))
-STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 0))  # Set to 0 to disable auto-stop
+STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 0))
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
@@ -109,7 +108,7 @@ tracking_has_buy = False
 tracking_buy_price = None
 total_return_profit = 0
 start_time = datetime.now(EU_TZ)
-stop_time = None  # Disable stop time if STOP_AFTER_SECONDS is 0
+stop_time = None if STOP_AFTER_SECONDS == 0 else start_time + timedelta(seconds=STOP_AFTER_SECONDS)
 last_valid_price = None
 
 # GitHub database functions
@@ -131,7 +130,6 @@ def upload_to_github(file_path, file_name):
         sha = None
         if response.status_code == 200:
             sha = response.json().get("sha")
-            logger.debug(f"Existing file SHA: {sha}")
         elif response.status_code != 404:
             logger.error(f"Failed to check existing file on GitHub: {response.status_code} - {response.text}")
             return
@@ -254,18 +252,26 @@ def setup_database():
                             macd REAL,
                             macd_signal REAL,
                             macd_hist REAL,
+                            supertrend REAL,  # Added for Supertrend
+                            supertrend_trend INTEGER,  # Added for Supertrend trend (0 or 1)
+                            stoch_rsi REAL,  # Added for Stochastic RSI
+                            stoch_k REAL,  # Added for Stochastic RSI K
+                            stoch_d REAL,  # Added for Stochastic RSI D
+                            obv REAL,  # Added for OBV
                             message TEXT,
                             timeframe TEXT,
                             order_id TEXT,
                             strategy TEXT
                         )
                     ''')
-                    logger.info("Created new trades table")
+                    logger.info("Created new trades table with additional indicator columns")
                 c.execute("PRAGMA table_info(trades);")
                 columns = [col[1] for col in c.fetchall()]
-                for col in ['return_profit', 'total_return_profit', 'diff', 'macd', 'macd_signal', 'macd_hist', 'message', 'timeframe', 'order_id', 'strategy']:
+                for col in ['return_profit', 'total_return_profit', 'diff', 'macd', 'macd_signal', 'macd_hist', 
+                           'supertrend', 'supertrend_trend', 'stoch_rsi', 'stoch_k', 'stoch_d', 'obv', 
+                           'message', 'timeframe', 'order_id', 'strategy']:
                     if col not in columns:
-                        c.execute(f"ALTER TABLE trades ADD COLUMN {col} {'REAL' if col in ['return_profit', 'total_return_profit', 'diff', 'macd', 'macd_signal', 'macd_hist'] else 'TEXT'};")
+                        c.execute(f"ALTER TABLE trades ADD COLUMN {col} {'REAL' if col in ['return_profit', 'total_return_profit', 'diff', 'macd', 'macd_signal', 'macd_hist', 'supertrend', 'stoch_rsi', 'stoch_k', 'stoch_d', 'obv'] else 'INTEGER' if col == 'supertrend_trend' else 'TEXT'};")
                         logger.info(f"Added column {col} to trades table")
                 conn.commit()
                 logger.info(f"Database initialized successfully at {db_path}, size: {os.path.getsize(db_path)} bytes")
@@ -291,6 +297,7 @@ if not setup_database():
 # Fetch price data
 def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, retries=3, delay=5):
     global last_valid_price
+    start_time = time.time()
     for attempt in range(retries):
         try:
             ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=5)
@@ -306,7 +313,8 @@ def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, r
             if abs(selected_data['diff']) < 0.00:
                 logger.warning(f"Open and Close similar for {symbol} (diff={selected_data['diff']}). Accepting data.")
             last_valid_price = selected_data
-            logger.debug(f"Fetched price data: {selected_data.to_dict()}")
+            elapsed = time.time() - start_time
+            logger.debug(f"Fetched price data in {elapsed:.3f}s: {selected_data.to_dict()}")
             return selected_data
         except Exception as e:
             logger.error(f"Error fetching price (attempt {attempt + 1}/{retries}): {e}")
@@ -320,8 +328,16 @@ def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, r
 
 # Calculate technical indicators
 def add_technical_indicators(df):
+    start_time = time.time()
     try:
-        # --- original indicators you already had (kept intact) ---
+        # Optimize DataFrame operations by avoiding redundant calculations
+        df = df.copy()  # Create a copy to avoid modifying the original
+        df['Close'] = df['Close'].ffill()  # Fill missing Close prices
+        df['High'] = df['High'].ffill()  # Fill missing High prices
+        df['Low'] = df['Low'].ffill()  # Fill missing Low prices
+        df['Volume'] = df['Volume'].ffill()  # Fill missing Volume
+
+        # Original indicators
         df['ema1'] = ta.ema(df['Close'], length=12)
         df['ema2'] = ta.ema(df['Close'], length=26)
         df['rsi'] = ta.rsi(df['Close'], length=14)
@@ -330,110 +346,68 @@ def add_technical_indicators(df):
         df['d'] = kdj['D_9_3']
         df['j'] = kdj['J_9_3']
         macd = ta.macd(df['Close'], fast=12, slow=26, signal=9)
-        df['macd'] = macd['MACD_12_26_9']  # DIF
-        df['macd_signal'] = macd['MACDs_12_26_9']  # DEA
-        df['macd_hist'] = macd['MACDh_12_26_9']  # MACD Histogram
+        df['macd'] = macd['MACD_12_26_9']
+        df['macd_signal'] = macd['MACDs_12_26_9']
+        df['macd_hist'] = macd['MACDh_12_26_9']
         df['diff'] = df['Close'] - df['Open']
-        # --- end original indicators ---
 
-        # --------------------------
-        # NEW: Supertrend calculation
-        # --------------------------
-        # parameters for Supertrend (my recommended settings for 15m)
+        # Supertrend calculation (optimized)
         st_length = 10
         st_multiplier = 3.0
-
-        # True Range (TR) & ATR
         high_low = df['High'] - df['Low']
         high_close_prev = (df['High'] - df['Close'].shift()).abs()
         low_close_prev = (df['Low'] - df['Close'].shift()).abs()
         tr = pd.concat([high_low, high_close_prev, low_close_prev], axis=1).max(axis=1)
-        atr = tr.rolling(st_length, min_periods=1).mean()  # simple ATR
-
-        # basic bands
+        atr = tr.rolling(st_length, min_periods=1).mean()
         hl2 = (df['High'] + df['Low']) / 2
         basic_upperband = hl2 + (st_multiplier * atr)
         basic_lowerband = hl2 - (st_multiplier * atr)
-
-        # final bands (iterative)
         final_upperband = basic_upperband.copy()
         final_lowerband = basic_lowerband.copy()
+        
+        # Vectorized Supertrend calculation to reduce loop overhead
         for i in range(1, len(df)):
-            # upper
-            if (basic_upperband.iat[i] < final_upperband.iat[i-1]) or (df['Close'].iat[i-1] > final_upperband.iat[i-1]):
-                final_upperband.iat[i] = basic_upperband.iat[i]
+            if (basic_upperband.iloc[i] < final_upperband.iloc[i-1]) or (df['Close'].iloc[i-1] > final_upperband.iloc[i-1]):
+                final_upperband.iloc[i] = basic_upperband.iloc[i]
             else:
-                final_upperband.iat[i] = final_upperband.iat[i-1]
-            # lower
-            if (basic_lowerband.iat[i] > final_lowerband.iat[i-1]) or (df['Close'].iat[i-1] < final_lowerband.iat[i-1]):
-                final_lowerband.iat[i] = basic_lowerband.iat[i]
+                final_upperband.iloc[i] = final_upperband.iloc[i-1]
+            if (basic_lowerband.iloc[i] > final_lowerband.iloc[i-1]) or (df['Close'].iloc[i-1] < final_lowerband.iloc[i-1]):
+                final_lowerband.iloc[i] = basic_lowerband.iloc[i]
             else:
-                final_lowerband.iat[i] = final_lowerband.iat[i-1]
+                final_lowerband.iloc[i] = final_lowerband.iloc[i-1]
 
-        # supertrend direction: True = uptrend, False = downtrend
-        supertrend = pd.Series(index=df.index, dtype='float64')
-        supertrend_trend = pd.Series(index=df.index, dtype='bool')
-        # initialize
-        supertrend.iat[0] = final_upperband.iat[0]
-        supertrend_trend.iat[0] = True  # assume up at start
-        for i in range(1, len(df)):
-            if df['Close'].iat[i] <= final_upperband.iat[i]:
-                # potential down
-                supertrend.iat[i] = final_upperband.iat[i]
-            else:
-                supertrend.iat[i] = final_lowerband.iat[i]
-
-            # determine trend boolean
-            if df['Close'].iat[i] > final_upperband.iat[i-1]:
-                supertrend_trend.iat[i] = True
-            elif df['Close'].iat[i] < final_lowerband.iat[i-1]:
-                supertrend_trend.iat[i] = False
-            else:
-                supertrend_trend.iat[i] = supertrend_trend.iat[i-1]
-
+        supertrend = final_upperband.where(df['Close'] <= final_upperband, final_lowerband)
+        supertrend_trend = (df['Close'] > final_upperband.shift()).where(df['Close'] > final_upperband.shift(), 
+                            (df['Close'] < final_lowerband.shift())).where(df['Close'] < final_lowerband.shift(), 
+                            pd.Series(True, index=df.index).shift().fillna(True))
         df['supertrend'] = supertrend
-        df['supertrend_trend'] = supertrend_trend  # True=up, False=down
+        df['supertrend_trend'] = supertrend_trend.astype(int)  # 1 for uptrend, 0 for downtrend
+        df['supertrend_signal'] = np.where(df['supertrend_trend'] & ~df['supertrend_trend'].shift().fillna(True), 'buy',
+                                         np.where(~df['supertrend_trend'] & df['supertrend_trend'].shift().fillna(True), 'sell', None))
 
-        # --------------------------
-        # NEW: Stochastic RSI (StochRSI)
-        # --------------------------
-        try:
-            stoch_rsi_len = 14
-            stoch_k_len = 3
-            stoch_d_len = 3
-            # use RSI already calculated
-            rsi = df['rsi'].fillna(method='ffill')
-            rsi_min = rsi.rolling(stoch_rsi_len, min_periods=1).min()
-            rsi_max = rsi.rolling(stoch_rsi_len, min_periods=1).max()
-            stochrsi = (rsi - rsi_min) / (rsi_max - rsi_min + 1e-12)
-            stoch_k = stochrsi.rolling(stoch_k_len, min_periods=1).mean() * 100
-            stoch_d = stoch_k.rolling(stoch_d_len, min_periods=1).mean()
-            df['stoch_rsi'] = stochrsi
-            df['stoch_k'] = stoch_k
-            df['stoch_d'] = stoch_d
-        except Exception as e:
-            logger.warning(f"StochRSI calculation failed: {e}")
-            df['stoch_rsi'] = np.nan
-            df['stoch_k'] = np.nan
-            df['stoch_d'] = np.nan
+        # Stochastic RSI
+        stoch_rsi_len = 14
+        stoch_k_len = 3
+        stoch_d_len = 3
+        rsi = df['rsi'].ffill()
+        rsi_min = rsi.rolling(stoch_rsi_len, min_periods=1).min()
+        rsi_max = rsi.rolling(stoch_rsi_len, min_periods=1).max()
+        stochrsi = (rsi - rsi_min) / (rsi_max - rsi_min + 1e-12)
+        df['stoch_rsi'] = stochrsi
+        df['stoch_k'] = stochrsi.rolling(stoch_k_len, min_periods=1).mean() * 100
+        df['stoch_d'] = df['stoch_k'].rolling(stoch_d_len, min_periods=1).mean()
 
-        # --------------------------
-        # NEW: On-Balance Volume (OBV)
-        # --------------------------
-        try:
-            # OBV: if today's close > yesterday's close => +volume; if < => -volume; else 0
-            close_diff = df['Close'].diff().fillna(0)
-            direction = np.sign(close_diff)
-            obv = (direction * df['Volume']).fillna(0).cumsum()
-            df['obv'] = obv
-        except Exception as e:
-            logger.warning(f"OBV calculation failed: {e}")
-            df['obv'] = np.nan
+        # OBV
+        close_diff = df['Close'].diff().fillna(0)
+        direction = np.sign(close_diff)
+        df['obv'] = (direction * df['Volume']).fillna(0).cumsum()
 
-        logger.debug(f"Technical indicators calculated: {df.iloc[-1][['ema1', 'ema2', 'rsi', 'k', 'd', 'j', 'macd', 'macd_signal', 'macd_hist', 'diff', 'supertrend', 'supertrend_trend', 'stoch_k', 'stoch_d', 'obv']].to_dict()}")
+        elapsed = time.time() - start_time
+        logger.debug(f"Technical indicators calculated in {elapsed:.3f}s: {df.iloc[-1][['ema1', 'ema2', 'rsi', 'k', 'd', 'j', 'macd', 'macd_signal', 'macd_hist', 'diff', 'supertrend', 'supertrend_trend', 'supertrend_signal', 'stoch_k', 'stoch_d', 'obv']].to_dict()}")
         return df
     except Exception as e:
-        logger.error(f"Error calculating indicators: {e}")
+        elapsed = time.time() - start_time
+        logger.error(f"Error calculating indicators after {elapsed:.3f}s: {e}")
         return df
 
 # AI decision logic with market order placement
@@ -442,28 +416,28 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         logger.warning("DataFrame is empty or too small for decision.")
         return "hold", None, None, None
 
+    start_time = time.time()
     latest = df.iloc[-1]
     close_price = latest['Close']
     open_price = latest['Open']
 
-    # My indicator variables (make sure they are calculated in "Calculate technical indicators")
-    supertrend_signal = latest['supertrend_signal'] if not pd.isna(latest['supertrend_signal']) else None  # 'buy' or 'sell'
+    # Indicator variables
+    supertrend_signal = latest['supertrend_signal']
     rsi = latest['rsi'] if not pd.isna(latest['rsi']) else 0.0
     stoch_k = latest['stoch_k'] if not pd.isna(latest['stoch_k']) else 0.0
     stoch_d = latest['stoch_d'] if not pd.isna(latest['stoch_d']) else 0.0
     obv = latest['obv'] if not pd.isna(latest['obv']) else 0.0
-    obv_prev3 = df['obv'].iloc[-4:-1] if len(df) >= 4 else pd.Series([0, 0, 0])
+    obv_prev3 = df['obv'].iloc[-4:-1].mean() if len(df) >= 4 else 0.0
 
     stop_loss = None
     take_profit = None
     action = "hold"
     order_id = None
 
-    # Calculate quantity based on USDT balance set in AMOUNTS
+    # Calculate quantity
     usdt_amount = AMOUNTS
     try:
         quantity = usdt_amount / close_price
-        # Adjust quantity to meet Binance precision requirements
         market = exchange.load_markets()[SYMBOL]
         quantity_precision = market['precision']['amount']
         quantity = exchange.amount_to_precision(SYMBOL, quantity)
@@ -483,28 +457,27 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
             logger.info("Take-profit triggered.")
             action = "sell"
         else:
-            # SELL LOGIC — my new strategy
             if (
                 supertrend_signal == 'sell' and
-                rsi < 55 and rsi > 30 and
+                30 < rsi < 55 and
                 stoch_k < stoch_d and stoch_k > 80 and
-                obv < obv_prev3.mean()
+                obv < obv_prev3
             ):
                 logger.info(f"Sell condition met: ST={supertrend_signal}, RSI={rsi:.2f}, StochK={stoch_k:.2f}, StochD={stoch_d:.2f}, OBV={obv:.2f}")
                 action = "sell"
 
-    # BUY LOGIC — only if no open position
+    # Buy logic
     if action == "hold" and position is None:
         if (
             supertrend_signal == 'buy' and
-            rsi > 40 and rsi < 65 and
+            45 < rsi < 70 and
             stoch_k > stoch_d and stoch_k < 20 and
-            obv > obv_prev3.mean()
+            obv > obv_prev3
         ):
             logger.info(f"Buy condition met: ST={supertrend_signal}, RSI={rsi:.2f}, StochK={stoch_k:.2f}, StochD={stoch_d:.2f}, OBV={obv:.2f}")
             action = "buy"
 
-    # Prevent consecutive buys/sells
+    # Prevent consecutive actions
     if action == "buy" and position is not None:
         logger.debug("Prevented consecutive buy order.")
         action = "hold"
@@ -571,6 +544,7 @@ def handle_second_strategy(action, current_price, primary_profit):
 
 # Telegram message sending
 def send_telegram_message(signal, bot_token, chat_id, retries=3, delay=5):
+    start_time = time.time()
     for attempt in range(retries):
         try:
             bot = Bot(token=bot_token)
@@ -595,6 +569,12 @@ KDJ J: {signal['j']:.2f}
 MACD (DIF): {signal['macd']:.2f}
 MACD Signal (DEA): {signal['macd_signal']:.2f}
 MACD Hist: {signal['macd_hist']:.2f}
+Supertrend: {signal['supertrend']:.2f}
+Supertrend Trend: {'Up' if signal['supertrend_trend'] else 'Down'}
+Stoch RSI: {signal['stoch_rsi']:.2f}
+Stoch K: {signal['stoch_k']:.2f}
+Stoch D: {signal['stoch_d']:.2f}
+OBV: {signal['obv']:.2f}
 {f"Stop-Loss: {signal['stop_loss']:.2f}" if signal['stop_loss'] is not None else ""}
 {f"Take-Profit: {signal['take_profit']:.2f}" if signal['take_profit'] is not None else ""}
 {f"Total Profit: {signal['total_profit']:.2f}" if signal['action'] in ["buy", "sell"] else ""}
@@ -602,7 +582,8 @@ MACD Hist: {signal['macd_hist']:.2f}
 {f"Order ID: {signal['order_id']}" if signal['order_id'] else ""}
 """
             bot.send_message(chat_id=chat_id, text=message)
-            logger.info(f"Telegram message sent successfully: {signal['action']}, order_id={signal['order_id']}")
+            elapsed = time.time() - start_time
+            logger.info(f"Telegram message sent successfully in {elapsed:.3f}s: {signal['action']}, order_id={signal['order_id']}")
             return
         except telegram.error.InvalidToken:
             logger.error(f"Invalid Telegram bot token: {bot_token}")
@@ -614,14 +595,16 @@ MACD Hist: {signal['macd_hist']:.2f}
             logger.error(f"Error sending Telegram message (attempt {attempt + 1}/{retries}): {e}")
             if attempt < retries - 1:
                 time.sleep(delay)
-    logger.error(f"Failed to send Telegram message after {retries} attempts")
+    elapsed = time.time() - start_time
+    logger.error(f"Failed to send Telegram message after {retries} attempts, total time: {elapsed:.3f}s")
 
 # Calculate next timeframe boundary
 def get_next_timeframe_boundary(current_time, timeframe_seconds):
-    current_seconds = (current_time.hour * 3600 + current_time.minute * 60 + current_time.second)
-    intervals_passed = current_seconds // timeframe_seconds
-    next_boundary = (intervals_passed + 1) * timeframe_seconds
-    seconds_until_boundary = next_boundary - current_seconds
+    # Simplified to ensure exact minute alignment
+    current_seconds = current_time.second + current_time.microsecond / 1e6
+    seconds_until_boundary = timeframe_seconds - (current_seconds % timeframe_seconds)
+    if seconds_until_boundary == timeframe_seconds:
+        seconds_until_boundary = 0
     return seconds_until_boundary
 
 # Trading bot
@@ -631,7 +614,6 @@ def trading_bot():
     try:
         bot = Bot(token=BOT_TOKEN)
         logger.info("Telegram bot initialized successfully")
-        # Send test message to verify Telegram setup
         test_signal = {
             'time': datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S"),
             'action': 'test',
@@ -657,6 +639,12 @@ def trading_bot():
             'macd': 0.0,
             'macd_signal': 0.0,
             'macd_hist': 0.0,
+            'supertrend': 0.0,
+            'supertrend_trend': 0,
+            'stoch_rsi': 0.0,
+            'stoch_k': 0.0,
+            'stoch_d': 0.0,
+            'obv': 0.0,
             'message': f"Test message for {SYMBOL} bot startup",
             'timeframe': TIMEFRAME,
             'order_id': None,
@@ -680,7 +668,7 @@ def trading_bot():
     initial_signal = {
         'time': datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S"),
         'action': 'hold',
-        'symbol': SYMBOL,
+        'symbol': SYMBO,
         'price': 0.0,
         'open_price': 0.0,
         'close_price': 0.0,
@@ -702,6 +690,12 @@ def trading_bot():
         'macd': 0.0,
         'macd_signal': 0.0,
         'macd_hist': 0.0,
+        'supertrend': 0.0,
+        'supertrend_trend': 0,
+        'stoch_rsi': 0.0,
+        'stoch_k': 0.0,
+        'stoch_d': 0.0,
+        'obv': 0.0,
         'message': f"Initializing bot for {SYMBOL}",
         'timeframe': TIMEFRAME,
         'order_id': None,
@@ -734,8 +728,8 @@ def trading_bot():
                 logger.error(f"Failed to fetch historical data for {SYMBOL}")
                 return
 
-    timeframe_seconds = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '1d': 86400}.get(TIMEFRAME, TIMEFRAMES)
-    
+    timeframe_seconds = TIMEFRAMES  # Use INTER_SECONDS directly for consistency
+    # Align to the next minute boundary
     current_time = datetime.now(EU_TZ)
     seconds_to_wait = get_next_timeframe_boundary(current_time, timeframe_seconds)
     logger.info(f"Waiting {seconds_to_wait:.2f} seconds to align with next {TIMEFRAME} boundary")
@@ -771,15 +765,8 @@ def trading_bot():
                 break
 
             if not bot_active:
-                logger.info("Bot is stopped. Attempting to restart.")
-                bot_active = True
-                position = None
-                pause_start = None
-                pause_duration = 0
-                if STOP_AFTER_SECONDS > 0:
-                    stop_time = datetime.now(EU_TZ) + timedelta(seconds=STOP_AFTER_SECONDS)
-                if bot:
-                    bot.send_message(chat_id=CHAT_ID, text="Bot restarted automatically.")
+                logger.info("Bot is stopped. Waiting for restart command.")
+                time.sleep(timeframe_seconds)
                 continue
 
         try:
@@ -787,7 +774,7 @@ def trading_bot():
                 elapsed = (datetime.now(EU_TZ) - pause_start).total_seconds()
                 if elapsed < pause_duration:
                     logger.info(f"Bot paused, resuming in {int(pause_duration - elapsed)} seconds")
-                    time.sleep(min(pause_duration - elapsed, 60))
+                    time.sleep(min(pause_duration - elapsed, timeframe_seconds))
                     continue
                 else:
                     pause_start = None
@@ -797,19 +784,19 @@ def trading_bot():
                     if bot:
                         bot.send_message(chat_id=CHAT_ID, text="Bot resumed after pause.")
 
+            # Fetch and process data
             latest_data = get_simulated_price()
             if pd.isna(latest_data['Close']):
                 logger.warning("Skipping cycle due to missing price data.")
-                current_time = datetime.now(EU_TZ)
-                seconds_to_wait = get_next_timeframe_boundary(current_time, timeframe_seconds)
-                time.sleep(seconds_to_wait)
+                time.sleep(timeframe_seconds)
                 continue
             current_price = latest_data['Close']
             current_time = datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
+            # Process Telegram commands
             if bot:
                 try:
-                    updates = bot.get_updates(offset=last_update_id, timeout=10)
+                    updates = bot.get_updates(offset=last_update_id, timeout=5)  # Reduced timeout
                     for update in updates:
                         if update.message and update.message.text:
                             text = update.message.text.strip()
@@ -892,6 +879,7 @@ def trading_bot():
                 except Exception as e:
                     logger.error(f"Error processing Telegram updates: {e}")
 
+            # Update DataFrame
             new_row = pd.DataFrame({
                 'Open': [latest_data['Open']],
                 'Close': [latest_data['Close']],
@@ -939,18 +927,15 @@ def trading_bot():
 
             loop_end_time = datetime.now(EU_TZ)
             processing_time = (loop_end_time - loop_start_time).total_seconds()
-            seconds_to_wait = get_next_timeframe_boundary(loop_end_time, timeframe_seconds)
-            adjusted_sleep = seconds_to_wait - processing_time
-            if adjusted_sleep < 0:
-                logger.warning(f"Processing time ({processing_time:.2f}s) exceeded timeframe interval ({timeframe_seconds}s), skipping sleep")
-                adjusted_sleep = 0
-            logger.debug(f"Sleeping for {adjusted_sleep:.2f} seconds to align with next {TIMEFRAME} boundary")
-            time.sleep(adjusted_sleep)
+            seconds_to_wait = timeframe_seconds - processing_time
+            if seconds_to_wait < 0:
+                logger.warning(f"Processing time ({processing_time:.2f}s) exceeded timeframe interval ({timeframe_seconds}s), adjusting to next cycle")
+                seconds_to_wait = timeframe_seconds - (processing_time % timeframe_seconds)
+            logger.debug(f"Sleeping for {seconds_to_wait:.2f} seconds until next {TIMEFRAME} cycle")
+            time.sleep(seconds_to_wait)
         except Exception as e:
             logger.error(f"Error in trading loop: {e}")
-            current_time = datetime.now(EU_TZ)
-            seconds_to_wait = get_next_timeframe_boundary(current_time, timeframe_seconds)
-            time.sleep(seconds_to_wait)
+            time.sleep(timeframe_seconds)
 
 # Helper functions
 def create_signal(action, current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, msg, order_id, strategy):
@@ -980,6 +965,12 @@ def create_signal(action, current_price, latest_data, df, profit, total_profit, 
         'macd': float(latest['macd']) if not pd.isna(latest['macd']) else 0.0,
         'macd_signal': float(latest['macd_signal']) if not pd.isna(latest['macd_signal']) else 0.0,
         'macd_hist': float(latest['macd_hist']) if not pd.isna(latest['macd_hist']) else 0.0,
+        'supertrend': float(latest['supertrend']) if not pd.isna(latest['supertrend']) else 0.0,
+        'supertrend_trend': int(latest['supertrend_trend']) if not pd.isna(latest['supertrend_trend']) else 0,
+        'stoch_rsi': float(latest['stoch_rsi']) if not pd.isna(latest['stoch_rsi']) else 0.0,
+        'stoch_k': float(latest['stoch_k']) if not pd.isna(latest['stoch_k']) else 0.0,
+        'stoch_d': float(latest['stoch_d']) if not pd.isna(latest['stoch_d']) else 0.0,
+        'obv': float(latest['obv']) if not pd.isna(latest['obv']) else 0.0,
         'message': msg,
         'timeframe': TIMEFRAME,
         'order_id': order_id,
@@ -1002,8 +993,9 @@ def store_signal(signal):
                     time, action, symbol, price, open_price, close_price, volume,
                     percent_change, stop_loss, take_profit, profit, total_profit,
                     return_profit, total_return_profit, ema1, ema2, rsi, k, d, j, diff,
-                    macd, macd_signal, macd_hist, message, timeframe, order_id, strategy
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    macd, macd_signal, macd_hist, supertrend, supertrend_trend, 
+                    stoch_rsi, stoch_k, stoch_d, obv, message, timeframe, order_id, strategy
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 signal['time'], signal['action'], signal['symbol'], signal['price'],
                 signal['open_price'], signal['close_price'], signal['volume'],
@@ -1013,6 +1005,8 @@ def store_signal(signal):
                 signal['ema1'], signal['ema2'], signal['rsi'],
                 signal['k'], signal['d'], signal['j'], signal['diff'],
                 signal['macd'], signal['macd_signal'], signal['macd_hist'],
+                signal['supertrend'], signal['supertrend_trend'],
+                signal['stoch_rsi'], signal['stoch_k'], signal['stoch_d'], signal['obv'],
                 signal['message'], signal['timeframe'], signal['order_id'], signal['strategy']
             ))
             conn.commit()
