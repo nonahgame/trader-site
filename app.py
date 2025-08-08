@@ -668,7 +668,7 @@ def trading_bot():
     initial_signal = {
         'time': datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S"),
         'action': 'hold',
-        'symbol': SYMBO,
+        'symbol': SYMBOL,
         'price': 0.0,
         'open_price': 0.0,
         'close_price': 0.0,
