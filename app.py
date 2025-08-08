@@ -497,7 +497,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
     if action == "hold" and position is None:
         if (
             supertrend_signal == 'buy' and
-            rsi > 45 and rsi < 70 and
+            rsi > 40 and rsi < 65 and
             stoch_k > stoch_d and stoch_k < 20 and
             obv > obv_prev3.mean()
         ):
