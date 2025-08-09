@@ -1,5 +1,5 @@
 # app.py
-# not  yet working with macd kdj-j rsi ema1 and stop lost
+# not  yet working with macd kdj-j rsi ema1 and stop lost grok gt
 import os
 import pandas as pd
 import numpy as np
