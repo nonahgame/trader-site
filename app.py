@@ -1,4 +1,5 @@
 # in prg
+# 00 working kdj-j 
 import os
 import pandas as pd
 import numpy as np
