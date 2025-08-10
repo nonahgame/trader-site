@@ -1,1 +1,98 @@
-# pass
+# AI decision logic with market order placement
+def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAKE_PROFIT_PERCENT, position=None, buy_price=None):
+    if df.empty or len(df) < 1:
+        logger.warning("DataFrame is empty or too small for decision.")
+        return "hold", None, None, None
+    
+    latest = df.iloc[-1]
+    close_price = latest['Close']
+    open_price = latest['Open']
+    kdj_k = latest['k'] if not pd.isna(latest['k']) else 0.0
+    kdj_d = latest['d'] if not pd.isna(latest['d']) else 0.0
+    kdj_j = latest['j'] if not pd.isna(latest['j']) else 0.0
+    ema1 = latest['ema1'] if not pd.isna(latest['ema1']) else 0.0
+    ema2 = latest['ema2'] if not pd.isna(latest['ema2']) else 0.0
+    macd = latest['macd'] if not pd.isna(latest['macd']) else 0.0  # DIF
+    macd_signal = latest['macd_signal'] if not pd.isna(latest['macd_signal']) else 0.0  # DEA
+    stop_loss = None
+    take_profit = None
+    action = "hold"
+    order_id = None
+
+    # Calculate quantity based on 11.00 USDT
+    usdt_amount = AMOUNTS
+    try:
+        quantity = usdt_amount / close_price
+        # Adjust quantity to meet Binance precision requirements
+        market = exchange.load_markets()[SYMBOL]
+        quantity_precision = market['precision']['amount']
+        quantity = exchange.amount_to_precision(SYMBOL, quantity)
+        logger.debug(f"Calculated quantity: {quantity} for {usdt_amount} USDT at price {close_price:.2f}")
+    except Exception as e:
+        logger.error(f"Error calculating quantity: {e}")
+        return "hold", None, None, None
+
+    if position == "long" and buy_price is not None:
+        stop_loss = buy_price * (1 + stop_loss_percent / 100)
+        take_profit = buy_price * (1 + take_profit_percent / 100)
+        if close_price <= stop_loss:
+            logger.info("Stop-loss triggered.")
+            action = "sell"
+        elif close_price >= take_profit:
+            logger.info("Take-profit triggered.")
+            action = "sell"
+        elif (close_price < open_price and kdj_j > kdj_d and macd > macd_signal and kdj_j > 13) or (kdj_j < kdj_d and macd < macd_signal and close_price < open_price and kdj_j > 15): # or (close_price < open_price and kdj_j < kdj_d and macd > macd_signal):
+            logger.info(f"Sell condition met: close={close_price:.2f}, open={open_price:.2f}, kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, DIF={macd:.2f}, DEA={macd_signal:.2f}")
+            action = "sell"
+        elif (close_price < open_price and kdj_j < kdj_d and macd > macd_signal and kdj_j > 12):
+            logger.info(f"Sell condition met: close={close_price:.2f}, open={open_price:.2f}, kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, DIF={macd:.2f}, DEA={macd_signal:.2f}")
+            action = "sell"
+        elif kdj_j > 143.00:
+            logger.info(f"Overbought KDJ J detected: kdj_j={kdj_j:.2f}")
+            action = "sell"
+
+    if action == "hold" and position is None:
+        if (kdj_j < -34.00 and ema1 > ema2 or kdj_j > kdj_d and kdj_j < 115): # or (close_price > open_price and kdj_j > kdj_d or ema1 > ema2 and macd > macd_signal):
+            logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
+            action = "buy"
+        elif (close_price > open_price and kdj_j > kdj_d and macd > macd_signal and kdj_j < 110 or ema1 > ema2 and kdj_j > 37):
+            logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
+            action = "buy"
+        elif (close_price > open_price and kdj_j < kdj_d and macd < macd_signal and ema1 > ema2 and kdj_j < 18):
+            logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
+            action = "buy"
+        elif (close_price > open_price and kdj_j < kdj_d and macd > macd_signal and ema1 > ema2 and kdj_j < 18):
+            logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
+            action = "buy"
+
+    if action == "buy" and position is not None:
+        logger.debug("Prevented consecutive buy order.")
+        action = "hold"
+    if action == "sell" and position is None:
+        logger.debug("Prevented sell order without open position.")
+        action = "hold"
+
+    if action in ["buy", "sell"] and bot_active:
+        try:
+            if action == "buy":
+                order = exchange.create_market_buy_order(SYMBOL, quantity)
+                order_id = str(order['id'])
+                logger.info(f"Placed market buy order: {order_id}, quantity={quantity}, price={close_price:.2f}")
+            elif action == "sell":
+                balance = exchange.fetch_balance()
+                asset_symbol = SYMBOL.split("/")[0]
+                available_amount = balance[asset_symbol]['free']
+                quantity = exchange.amount_to_precision(SYMBOL, available_amount)
+                if float(quantity) <= 0:
+                    logger.warning("No asset balance available to sell.")
+                    return "hold", None, None, None
+                order = exchange.create_market_sell_order(SYMBOL, quantity)
+                order_id = str(order['id'])
+                logger.info(f"Placed market sell order: {order_id}, quantity={quantity}, price={close_price:.2f}")
+        except Exception as e:
+            logger.error(f"Error placing market order: {e}")
+            action = "hold"
+            order_id = None
+
+    logger.debug(f"AI decision: action={action}, stop_loss={stop_loss}, take_profit={take_profit}, order_id={order_id}")
+    return action, stop_loss, take_profit, order_id
