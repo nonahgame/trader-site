@@ -372,7 +372,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
     except Exception as e:
         logger.error(f"Error calculating quantity: {e}")
         return "hold", None, None, None
-
+    # Updated 10 08 2025
     if position == "long" and buy_price is not None:
         stop_loss = buy_price * (1 + stop_loss_percent / 100)
         take_profit = buy_price * (1 + take_profit_percent / 100)
@@ -382,27 +382,30 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         elif close_price >= take_profit:
             logger.info("Take-profit triggered.")
             action = "sell"
-        elif (close_price < open_price and kdj_j > kdj_d and macd > macd_signal and kdj_j > 13) or (kdj_j < kdj_d and macd < macd_signal and close_price < open_price and kdj_j > 15): # or (close_price < open_price and kdj_j < kdj_d and macd > macd_signal):
+        elif (close_price < open_price and kdj_j > 19): #kdj_d and macd > macd_signal and kdj_j > 13) or (kdj_j < kdj_d and macd < macd_signal and close_price < open_price and kdj_j > 15): # or (close_price < open_price and kdj_j < kdj_d and macd > macd_signal):
             logger.info(f"Sell condition met: close={close_price:.2f}, open={open_price:.2f}, kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, DIF={macd:.2f}, DEA={macd_signal:.2f}")
             action = "sell"
-        elif (close_price < open_price and kdj_j < kdj_d and macd > macd_signal and kdj_j > 12):
-            logger.info(f"Sell condition met: close={close_price:.2f}, open={open_price:.2f}, kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, DIF={macd:.2f}, DEA={macd_signal:.2f}")
-            action = "sell"
-        elif kdj_j > 143.00:
-            logger.info(f"Overbought KDJ J detected: kdj_j={kdj_j:.2f}")
-            action = "sell"
+        #elif (close_price < open_price and kdj_j > kdj_d and macd > macd_signal and kdj_j > 13) or (kdj_j < kdj_d and macd < macd_signal and close_price < open_price and kdj_j > 15): # or (close_price < open_price and kdj_j < kdj_d and macd > macd_signal):
+        #    logger.info(f"Sell condition met: close={close_price:.2f}, open={open_price:.2f}, kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, DIF={macd:.2f}, DEA={macd_signal:.2f}")
+        #    action = "sell"
+        #elif (close_price < open_price and kdj_j < kdj_d and macd > macd_signal and kdj_j > 12):
+        #    logger.info(f"Sell condition met: close={close_price:.2f}, open={open_price:.2f}, kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, DIF={macd:.2f}, DEA={macd_signal:.2f}")
+        #    action = "sell"
+        #elif kdj_j > 143.00:
+        #    logger.info(f"Overbought KDJ J detected: kdj_j={kdj_j:.2f}")
+        #    action = "sell"
 
     if action == "hold" and position is None:
-        if (kdj_j < -34.00 and ema1 > ema2 or kdj_j > kdj_d and kdj_j < 115): # or (close_price > open_price and kdj_j > kdj_d or ema1 > ema2 and macd > macd_signal):
+        if (kdj_j < -26.00 and ema1 > ema2 or kdj_j > kdj_d and macd < macd_signal): # or (close_price > open_price and kdj_j > kdj_d or ema1 > ema2 and macd > macd_signal):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
-        elif (close_price > open_price and kdj_j > kdj_d and macd > macd_signal and kdj_j < 110 or ema1 > ema2 and kdj_j > 37):
+        elif (close_price > open_price and kdj_j > kdj_d and macd > macd_signal and kdj_j < 115 and ema1 > ema2):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
-        elif (close_price > open_price and kdj_j < kdj_d and macd < macd_signal and ema1 > ema2 and kdj_j < 18):
+        elif (close_price > open_price and macd > macd_signal and ema1 > ema2 and kdj_j < 114):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
-        elif (close_price > open_price and kdj_j < kdj_d and macd > macd_signal and ema1 > ema2 and kdj_j < 18):
+        elif (close_price > open_price and kdj_j > kdj_d and macd > macd_signal and kdj_j < 114): # ema1 > ema2 and kdj_j < 18):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
 
