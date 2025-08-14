@@ -1,4 +1,4 @@
-# app.py
+# app.py  SOL 1h
 import os
 import pandas as pd
 import numpy as np
@@ -406,10 +406,10 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         if (kdj_j < - 24.00 and ema1 < ema2 or kdj_j < kdj_d and macd < macd_signal and rsi < 19.00): # or (close_price > open_price and kdj_j > kdj_d or ema1 > ema2 and macd > macd_signal):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
-        elif (close_price > open_price and kdj_j > kdj_d):# and macd > macd_signal and kdj_j < 115.00 and ema1 > ema2):
+        elif (close_price > open_price and kdj_j > kdj_d and ema1 > ema2):# and macd > macd_signal and kdj_j < 115.00 and ema1 > ema2):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
-        elif (close_price > open_price and macd > macd_signal):# and ema1 > ema2 and kdj_j < 114.00):
+        elif (close_price > open_price and macd > macd_signal and ema1 > ema2):# and ema1 > ema2 and kdj_j < 114.00):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
         #elif (close_price > open_price and kdj_j > kdj_d and macd > macd_signal and kdj_j < 114.00): # ema1 > ema2 and kdj_j < 18):
