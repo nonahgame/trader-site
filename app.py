@@ -1,3 +1,4 @@
+# app.py SOL 5000
 import os
 import pandas as pd
 import numpy as np
@@ -16,7 +17,6 @@ import base64
 from flask import Flask, render_template, jsonify
 import atexit
 import asyncio
-from tenacity import retry, stop_after_attempt, wait_exponential  # Added: For retry logic
 
 # Custom formatter for EU timezone (UTC)
 class EUFormatter(logging.Formatter):
@@ -58,59 +58,31 @@ werkzeug_logger.setLevel(logging.DEBUG)
 # Flask app setup
 app = Flask(__name__)
 
-# Environment variables with validation
+# Environment variables
 BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID")
 SYMBOL = os.getenv("SYMBOL", "SYMBOL")
 TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
-TIMEFRAMES = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))  # Modified: Default to 300 seconds (5m)
-STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", "STOP_LOSS_PERCENT"))  # Modified: Default to 1%
-TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", "TAKE_PROFIT_PERCENT"))  # Modified: Default to 2%
+TIMEFRAMES = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))
+STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", "STOP_LOSS_PERCENT"))
+TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", "TAKE_PROFIT_PERCENT"))
 STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 0))  # Set to 0 to disable auto-stop
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", None) # "GITHUB_TOKEN")  # Modified: None as default
-GITHUB_REPO = os.getenv("GITHUB_REPO", None) # "GITHUB_REPO")  # Modified: None as default
-GITHUB_PATH = os.getenv("GITHUB_PATH", "rr_bot.bd")  # Modified: Default to database file name
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
+GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
+GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
 BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "BINANCE_API_KEY")
 BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET", "BINANCE_API_SECRET")
-AMOUNTS = float(os.getenv("AMOUNTS", "AMOUNTS"))  # Modified: Default to 11.0 USDT
-
-# Modified: Validate critical environment variables
-if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_TOKEN":
-    logger.warning("GITHUB_TOKEN is not set or invalid. GitHub functionality may be limited.")
-if not GITHUB_REPO or GITHUB_REPO == "GITHUB_REPO":
-    logger.warning("GITHUB_REPO is not set or invalid. GitHub functionality may be limited.")
+AMOUNTS = float(os.getenv("AMOUNTS", "AMOUNTS"))
 
 # GitHub API setup
-GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}" if GITHUB_REPO else None
+GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
 HEADERS = {
     "Authorization": f"token {GITHUB_TOKEN}",
     "Accept": "application/vnd.github.v3+json"
-} if GITHUB_TOKEN else {}
+}
 
-# Database path (absolute path for VPS)
-db_path = os.path.abspath('rr_bot.bd')  # Modified: Use absolute path
-
-# Modified: Check file permissions and disk space
-def check_file_permissions(path):
-    try:
-        if not os.path.exists(path):
-            with open(path, 'a'):
-                os.utime(path, None)  # Create empty file if it doesn't exist
-        if not os.access(path, os.R_OK | os.W_OK):
-            logger.warning(f"No read/write permissions for {path}. Attempting to fix.")
-            os.chmod(path, 0o666)  # Set read/write permissions
-            logger.info(f"Set permissions to 666 for {path}")
-        # Check available disk space
-        stat = os.statvfs(os.path.dirname(path))
-        free_space = stat.f_bavail * stat.f_frsize / (1024 ** 2)  # Free space in MB
-        if free_space < 10:  # Less than 10 MB
-            logger.error(f"Low disk space: {free_space:.2f} MB available")
-        else:
-            logger.debug(f"Disk space available: {free_space:.2f} MB")
-    except Exception as e:
-        logger.error(f"Error checking file permissions for {path}: {e}")
-
-check_file_permissions(db_path)  # Added: Initial check for database file
+# Database path
+db_path = 'rr_bot.bd'
 
 # Timezone setup
 EU_TZ = pytz.utc
@@ -140,15 +112,19 @@ start_time = datetime.now(EU_TZ)
 stop_time = None  # Disable stop time if STOP_AFTER_SECONDS is 0
 last_valid_price = None
 
-# GitHub database functions with retry logic
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))  # Added: Retry logic
+# GitHub database functions
 def upload_to_github(file_path, file_name):
     try:
-        if not GITHUB_TOKEN or not GITHUB_REPO or not GITHUB_PATH:
-            logger.error("GitHub credentials or repository details missing. Skipping upload.")
+        if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_TOKEN":
+            logger.error("GITHUB_TOKEN is not set or invalid.")
+            return
+        if not GITHUB_REPO or GITHUB_REPO == "GITHUB_REPO":
+            logger.error("GITHUB_REPO is not set or invalid.")
+            return
+        if not GITHUB_PATH:
+            logger.error("GITHUB_PATH is not set.")
             return
         logger.debug(f"Uploading {file_name} to GitHub: {GITHUB_REPO}/{GITHUB_PATH}")
-        check_file_permissions(file_path)  # Added: Check permissions before upload
         with open(file_path, "rb") as f:
             content = base64.b64encode(f.read()).decode("utf-8")
         response = requests.get(GITHUB_API_URL, headers=HEADERS)
@@ -156,11 +132,9 @@ def upload_to_github(file_path, file_name):
         if response.status_code == 200:
             sha = response.json().get("sha")
             logger.debug(f"Existing file SHA: {sha}")
-        elif response.status_code == 404:
-            logger.info(f"No existing {file_name} found in GitHub repository")
-        else:
+        elif response.status_code != 404:
             logger.error(f"Failed to check existing file on GitHub: {response.status_code} - {response.text}")
-            response.raise_for_status()
+            return
         payload = {
             "message": f"Update {file_name} at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             "content": content
@@ -169,19 +143,22 @@ def upload_to_github(file_path, file_name):
             payload["sha"] = sha
         response = requests.put(GITHUB_API_URL, headers=HEADERS, json=payload)
         if response.status_code in [200, 201]:
-            logger.info(f"Successfully uploaded {file_name} to GitHub, size: {os.path.getsize(file_path)} bytes")
+            logger.info(f"Successfully uploaded {file_name} to GitHub")
         else:
             logger.error(f"Failed to upload {file_name} to GitHub: {response.status_code} - {response.text}")
-            response.raise_for_status()
     except Exception as e:
         logger.error(f"Error uploading {file_name} to GitHub: {e}", exc_info=True)
-        raise  # Re-raise for retry
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))  # Added: Retry logic
 def download_from_github(file_name, destination_path):
     try:
-        if not GITHUB_TOKEN or not GITHUB_REPO or not GITHUB_PATH:
-            logger.error("GitHub credentials or repository details missing. Starting with local database.")
+        if not GITHUB_TOKEN or GITHUB_TOKEN == "GITHUB_TOKEN":
+            logger.error("GITHUB_TOKEN is not set or invalid.")
+            return False
+        if not GITHUB_REPO or GITHUB_REPO == "GITHUB_REPO":
+            logger.error("GITHUB_REPO is not set or invalid.")
+            return False
+        if not GITHUB_PATH:
+            logger.error("GITHUB_PATH is not set.")
             return False
         logger.debug(f"Downloading {file_name} from GitHub: {GITHUB_REPO}/{GITHUB_PATH}")
         response = requests.get(GITHUB_API_URL, headers=HEADERS)
@@ -190,19 +167,15 @@ def download_from_github(file_name, destination_path):
             return False
         elif response.status_code != 200:
             logger.error(f"Failed to fetch {file_name} from GitHub: {response.status_code} - {response.text}")
-            response.raise_for_status()
-        content = base64.b64decode(response.json()["content"])
-        if len(content) == 0:  # Added: Check for empty content
-            logger.error(f"Downloaded {file_name} from GitHub is empty")
             return False
-        check_file_permissions(destination_path)  # Added: Check permissions before writing
+        content = base64.b64decode(response.json()["content"])
         with open(destination_path, "wb") as f:
             f.write(content)
-        logger.info(f"Downloaded {file_name} from GitHub to {destination_path}, size: {len(content)} bytes")
+        logger.info(f"Downloaded {file_name} from GitHub to {destination_path}")
         return True
     except Exception as e:
         logger.error(f"Error downloading {file_name} from GitHub: {e}", exc_info=True)
-        raise  # Re-raise for retry
+        return False
 
 # Keep-alive mechanism
 def keep_alive():
@@ -222,28 +195,21 @@ def setup_database():
         for attempt in range(3):
             try:
                 logger.info(f"Database setup attempt {attempt + 1}/3")
-                check_file_permissions(db_path)  # Added: Check permissions
-                # Check if database exists and is valid
                 if os.path.exists(db_path):
                     try:
                         test_conn = sqlite3.connect(db_path, check_same_thread=False)
                         c = test_conn.cursor()
                         c.execute("SELECT name FROM sqlite_master WHERE type='table';")
-                        tables = c.fetchall()
-                        logger.info(f"Existing database found at {db_path}, tables: {tables}")
+                        logger.info(f"Existing database found at {db_path}, tables: {c.fetchall()}")
                         test_conn.close()
-                        if os.path.getsize(db_path) == 0:  # Added: Check for empty database
-                            logger.error(f"Database at {db_path} is empty")
-                            os.remove(db_path)
-                            logger.info(f"Removed empty database file at {db_path}")
                     except sqlite3.DatabaseError as e:
                         logger.error(f"Existing database at {db_path} is corrupted: {e}")
                         os.remove(db_path)
                         logger.info(f"Removed corrupted database file at {db_path}")
 
-                # Attempt to download from GitHub
                 logger.info(f"Attempting to download database from GitHub: {GITHUB_API_URL}")
                 if download_from_github('rr_bot.bd', db_path):
+                    logger.info(f"Downloaded database from GitHub to {db_path}")
                     try:
                         test_conn = sqlite3.connect(db_path, check_same_thread=False)
                         c = test_conn.cursor()
@@ -255,10 +221,7 @@ def setup_database():
                         logger.error(f"Downloaded database is corrupted: {e}")
                         os.remove(db_path)
                         logger.info(f"Removed invalid downloaded database file at {db_path}")
-                else:
-                    logger.info("GitHub download failed or file not found. Creating new database.")
 
-                # Connect to database
                 logger.info(f"Connecting to database at {db_path}")
                 conn = sqlite3.connect(db_path, check_same_thread=False)
                 c = conn.cursor()
@@ -292,12 +255,12 @@ def setup_database():
                             macd_signal REAL,
                             macd_hist REAL,
                             lst_diff REAL,
-                            supertrend REAL,
-                            supertrend_trend INTEGER,
-                            stoch_rsi REAL,
-                            stoch_k REAL,
-                            stoch_d REAL,
-                            obv REAL,
+                            supertrend REAL,  # Added for Supertrend
+                            supertrend_trend INTEGER,  # Added for Supertrend trend (0 or 1)
+                            stoch_rsi REAL,  # Added for Stochastic RSI
+                            stoch_k REAL,  # Added for Stochastic RSI K
+                            stoch_d REAL,  # Added for Stochastic RSI D
+                            obv REAL,  # Added for OBV
                             message TEXT,
                             timeframe TEXT,
                             order_id TEXT,
@@ -313,10 +276,7 @@ def setup_database():
                         logger.info(f"Added column {col} to trades table")
                 conn.commit()
                 logger.info(f"Database initialized successfully at {db_path}, size: {os.path.getsize(db_path)} bytes")
-                try:
-                    upload_to_github(db_path, 'rr_bot.bd')  # Modified: Attempt upload after initialization
-                except Exception as e:
-                    logger.warning(f"Failed to upload database to GitHub after initialization: {e}")
+                upload_to_github(db_path, 'rr_bot.bd')
                 return True
             except sqlite3.Error as e:
                 logger.error(f"SQLite error during database setup (attempt {attempt + 1}/3): {e}", exc_info=True)
@@ -334,8 +294,6 @@ def setup_database():
 logger.info("Initializing database in main thread")
 if not setup_database():
     logger.error("Failed to initialize database in main thread. Flask routes may fail.")
-else:
-    logger.info("Database initialization successful")  # Added: Confirmation log
 
 # Fetch price data
 def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, retries=3, delay=5):
@@ -371,12 +329,14 @@ def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, r
 def add_technical_indicators(df):
     start_time = time.time()
     try:
-        df = df.copy()
-        df['Close'] = df['Close'].ffill()
-        df['High'] = df['High'].ffill()
-        df['Low'] = df['Low'].ffill()
-        df['Volume'] = df['Volume'].ffill()
+        # Optimize DataFrame operations by avoiding redundant calculations
+        df = df.copy()  # Create a copy to avoid modifying the original
+        df['Close'] = df['Close'].ffill()  # Fill missing Close prices
+        df['High'] = df['High'].ffill()  # Fill missing High prices
+        df['Low'] = df['Low'].ffill()  # Fill missing Low prices
+        df['Volume'] = df['Volume'].ffill()  # Fill missing Volume
 
+        # Original indicators
         df['ema1'] = ta.ema(df['Close'], length=12)
         df['ema2'] = ta.ema(df['Close'], length=26)
         df['rsi'] = ta.rsi(df['Close'], length=14)
@@ -391,6 +351,7 @@ def add_technical_indicators(df):
         df['diff'] = df['Close'] - df['Open']
         df['lst_diff'] = df['ema1'].shift(1) - df['ema1']
 
+        # Supertrend calculation (optimized)
         st_length = 10
         st_multiplier = 3.0
         high_low = df['High'] - df['Low']
@@ -404,6 +365,7 @@ def add_technical_indicators(df):
         final_upperband = basic_upperband.copy()
         final_lowerband = basic_lowerband.copy()
         
+        # Vectorized Supertrend calculation
         for i in range(1, len(df)):
             if (basic_upperband.iloc[i] < final_upperband.iloc[i-1]) or (df['Close'].iloc[i-1] > final_upperband.iloc[i-1]):
                 final_upperband.iloc[i] = basic_upperband.iloc[i]
@@ -415,15 +377,19 @@ def add_technical_indicators(df):
                 final_lowerband.iloc[i] = final_lowerband.iloc[i-1]
 
         supertrend = final_upperband.where(df['Close'] <= final_upperband, final_lowerband)
+        # Keep supertrend_trend as boolean for signal calculation
         supertrend_trend = df['Close'] > final_upperband.shift()
-        supertrend_trend = supertrend_trend.fillna(True)
+        supertrend_trend = supertrend_trend.fillna(True)  # Default to True for initial values
         df['supertrend'] = supertrend
-        df['supertrend_trend'] = supertrend_trend.astype(int)
+        # Store supertrend_trend as int (0/1) only in the final DataFrame
+        df['supertrend_trend'] = supertrend_trend.astype(int)  # 1 for uptrend, 0 for downtrend
+        # Calculate supertrend_signal using boolean operations
         df['supertrend_signal'] = np.where(
             supertrend_trend & ~supertrend_trend.shift().fillna(True), 'buy',
             np.where(~supertrend_trend & supertrend_trend.shift().fillna(True), 'sell', None)
         )
 
+        # Stochastic RSI
         stoch_rsi_len = 14
         stoch_k_len = 3
         stoch_d_len = 3
@@ -435,6 +401,7 @@ def add_technical_indicators(df):
         df['stoch_k'] = stochrsi.rolling(stoch_k_len, min_periods=1).mean() * 100
         df['stoch_d'] = df['stoch_k'].rolling(stoch_d_len, min_periods=1).mean()
 
+        # OBV
         close_diff = df['Close'].diff().fillna(0)
         direction = np.sign(close_diff)
         df['obv'] = (direction * df['Volume']).fillna(0).cumsum()
@@ -461,17 +428,19 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
     kdj_j = latest['j'] if not pd.isna(latest['j']) else 0.0
     ema1 = latest['ema1'] if not pd.isna(latest['ema1']) else 0.0
     ema2 = latest['ema2'] if not pd.isna(latest['ema2']) else 0.0
-    macd = latest['macd'] if not pd.isna(latest['macd']) else 0.0
-    macd_signal = latest['macd_signal'] if not pd.isna(latest['macd_signal']) else 0.0
+    macd = latest['macd'] if not pd.isna(latest['macd']) else 0.0  # DIF
+    macd_signal = latest['macd_signal'] if not pd.isna(latest['macd_signal']) else 0.0  # DEA
     rsi = latest['rsi'] if not pd.isna(latest['rsi']) else 0.0
     stop_loss = None
     take_profit = None
     action = "hold"
     order_id = None
 
+    # Calculate quantity based on 11.00 USDT
     usdt_amount = AMOUNTS
     try:
         quantity = usdt_amount / close_price
+        # Adjust quantity to meet Binance precision requirements
         market = exchange.load_markets()[SYMBOL]
         quantity_precision = market['precision']['amount']
         quantity = exchange.amount_to_precision(SYMBOL, quantity)
@@ -479,9 +448,9 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
     except Exception as e:
         logger.error(f"Error calculating quantity: {e}")
         return "hold", None, None, None
-
+    # market logics
     if position == "long" and buy_price is not None:
-        stop_loss = buy_price * (1 - stop_loss_percent / 100)  # Modified: Corrected stop-loss calculation
+        stop_loss = buy_price * (1 + stop_loss_percent / 100)
         take_profit = buy_price * (1 + take_profit_percent / 100)
         if close_price <= stop_loss:
             logger.info("Stop-loss triggered.")
@@ -489,18 +458,18 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         elif close_price >= take_profit:
             logger.info("Take-profit triggered.")
             action = "sell"
-        elif (close_price < open_price):
+        elif (close_price < open_price):# and kdj_j > kdj_d and macd > macd_signal and ema1 > ema2 and kdj_j > 58): #or (kdj_j < kdj_d and macd < macd_signal and close_price < open_price and kdj_j > 15): # or (close_price < open_price and kdj_j < kdj_d and macd > macd_signal):
             logger.info(f"Sell condition met: close={close_price:.2f}, open={open_price:.2f}, kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, DIF={macd:.2f}, DEA={macd_signal:.2f}")
             action = "sell"
 
     if action == "hold" and position is None:
-        if (kdj_j < -26.00 and ema1 < ema2 or kdj_j < kdj_d and macd < macd_signal and rsi < 19.00):
+        if (kdj_j < - 26.00 and ema1 < ema2 or kdj_j < kdj_d and macd < macd_signal and rsi < 19.00): # or (close_price > open_price and kdj_j > kdj_d or ema1 > ema2 and macd > macd_signal):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
-        elif (close_price > open_price and kdj_j > kdj_d and ema1 > ema2):
+        elif (close_price > open_price and kdj_j > kdj_d and ema1 > ema2):# and macd > macd_signal and kdj_j < 115.00 and ema1 > ema2):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
-        elif (close_price > open_price and macd > macd_signal and ema1 > ema2):
+        elif (close_price > open_price and macd > macd_signal and ema1 > ema2):# and ema1 > ema2 and kdj_j < 114.00):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
 
@@ -636,6 +605,7 @@ def trading_bot():
     try:
         bot = Bot(token=BOT_TOKEN)
         logger.info("Telegram bot initialized successfully")
+        # Send test message to verify Telegram setup
         test_signal = {
             'time': datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S"),
             'action': 'test',
@@ -726,10 +696,7 @@ def trading_bot():
         'strategy': 'initial'
     }
     store_signal(initial_signal)
-    try:
-        upload_to_github(db_path, 'rr_bot.bd')  # Modified: Handle upload failure gracefully
-    except Exception as e:
-        logger.warning(f"Failed to upload initial database to GitHub: {e}")
+    upload_to_github(db_path, 'rr_bot.bd')
     logger.info("Initial hold signal generated")
 
     for attempt in range(3):
@@ -788,10 +755,7 @@ def trading_bot():
                             send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
                     position = None
                 logger.info("Bot stopped due to time limit")
-                try:
-                    upload_to_github(db_path, 'rr_bot.bd')  # Modified: Handle upload failure
-                except Exception as e:
-                    logger.warning(f"Failed to upload database on stop: {e}")
+                upload_to_github(db_path, 'rr_bot.bd')
                 break
 
             if not bot_active:
@@ -862,10 +826,7 @@ def trading_bot():
                                         position = None
                                     bot_active = False
                                 bot.send_message(chat_id=command_chat_id, text="Bot stopped.")
-                                try:
-                                    upload_to_github(db_path, 'rr_bot.bd')  # Modified: Handle upload failure
-                                except Exception as e:
-                                    logger.warning(f"Failed to upload database on /stop: {e}")
+                                upload_to_github(db_path, 'rr_bot.bd')
                             elif text.startswith('/stop') and text[5:].isdigit():
                                 multiplier = int(text[5:])
                                 with bot_lock:
@@ -891,10 +852,7 @@ def trading_bot():
                                         position = None
                                     bot_active = False
                                 bot.send_message(chat_id=command_chat_id, text=f"Bot paused for {pause_duration/60} minutes.")
-                                try:
-                                    upload_to_github(db_path, 'rr_bot.bd')  # Modified: Handle upload failure
-                                except Exception as e:
-                                    logger.warning(f"Failed to upload database on /stopN: {e}")
+                                upload_to_github(db_path, 'rr_bot.bd')
                             elif text == '/start':
                                 with bot_lock:
                                     if not bot_active:
@@ -965,10 +923,7 @@ def trading_bot():
                     threading.Thread(target=send_telegram_message, args=(signal, BOT_TOKEN, CHAT_ID), daemon=True).start()
 
             if bot_active and action != "hold":
-                try:
-                    upload_to_github(db_path, 'rr_bot.bd')  # Modified: Handle upload failure
-                except Exception as e:
-                    logger.warning(f"Failed to upload database after trade: {e}")
+                upload_to_github(db_path, 'rr_bot.bd')
 
             loop_end_time = datetime.now(EU_TZ)
             processing_time = (loop_end_time - loop_start_time).total_seconds()
@@ -1061,10 +1016,6 @@ def store_signal(signal):
             conn.commit()
             elapsed = time.time() - start_time
             logger.debug(f"Signal stored successfully: action={signal['action']}, strategy={signal['strategy']}, time={signal['time']}, order_id={signal['order_id']}, db_write_time={elapsed:.3f}s")
-            try:
-                upload_to_github(db_path, 'rr_bot.bd')  # Added: Upload after storing signal
-            except Exception as e:
-                logger.warning(f"Failed to upload database after storing signal: {e}")
         except Exception as e:
             elapsed = time.time() - start_time
             logger.error(f"Error storing signal after {elapsed:.3f}s: {e}")
@@ -1107,10 +1058,6 @@ Total Return Profit: {total_return_profit_db:.2f}
 """
             elapsed = time.time() - start_time
             logger.debug(f"Performance data fetched in {elapsed:.3f}s")
-            try:
-                upload_to_github(db_path, 'rr_bot.bd')  # Added: Upload after performance fetch
-            except Exception as e:
-                logger.warning(f"Failed to upload database after performance fetch: {e}")
             return message
         except Exception as e:
             elapsed = time.time() - start_time
@@ -1157,10 +1104,6 @@ Total Return Profit: {total_return_profit_db:.2f}
 """
             elapsed = time.time() - start_time
             logger.debug(f"Trade counts fetched in {elapsed:.3f}s")
-            try:
-                upload_to_github(db_path, 'rr_bot.bd')  # Added: Upload after trade counts fetch
-            except Exception as e:
-                logger.warning(f"Failed to upload database after trade counts fetch: {e}")
             return message
         except Exception as e:
             elapsed = time.time() - start_time
@@ -1193,10 +1136,6 @@ def index():
             current_time = datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S")
             elapsed = time.time() - start_time
             logger.info(f"Rendering index.html: status={status}, timeframe={TIMEFRAME}, trades={len(trades)}, signal_exists={signal is not None}, signal_time={signal['time'] if signal else 'None'}, query_time={elapsed:.3f}s")
-            try:
-                upload_to_github(db_path, 'rr_bot.bd')  # Added: Upload after rendering index
-            except Exception as e:
-                logger.warning(f"Failed to upload database after rendering index: {e}")
             return render_template('index.html', signal=signal, status=status, timeframe=TIMEFRAME,
                                  trades=trades, stop_time=stop_time_str, current_time=current_time)
         except Exception as e:
@@ -1231,10 +1170,6 @@ def trades():
             trades = [dict(zip([col[0] for col in c.description], row)) for row in c.fetchall()]
             elapsed = time.time() - start_time
             logger.debug(f"Fetched {len(trades)} trades for /trades endpoint in {elapsed:.3f}s")
-            try:
-                upload_to_github(db_path, 'rr_bot.bd')  # Added: Upload after fetching trades
-            except Exception as e:
-                logger.warning(f"Failed to upload database after fetching trades: {e}")
             return jsonify(trades)
         except Exception as e:
             elapsed = time.time() - start_time
@@ -1245,19 +1180,10 @@ def trades():
 def cleanup():
     global conn
     if conn:
-        try:
-            conn.commit()  # Added: Ensure pending changes are committed
-            conn.close()
-            logger.info("Database connection closed")
-            try:
-                upload_to_github(db_path, 'rr_bot.bd')  # Modified: Handle upload failure
-                logger.info("Final database backup to GitHub completed")
-            except Exception as e:
-                logger.warning(f"Failed to upload database during cleanup: {e}")
-        except Exception as e:
-            logger.error(f"Error during cleanup: {e}")
-        finally:
-            conn = None  # Added: Ensure conn is set to None
+        conn.close()
+        logger.info("Database connection closed")
+        upload_to_github(db_path, 'rr_bot.bd')
+        logger.info("Final database backup to GitHub completed")
 
 atexit.register(cleanup)
 
@@ -1265,8 +1191,6 @@ async def main():
     pass
 
 if bot_thread is None or not bot_thread.is_alive():
-    if STOP_AFTER_SECONDS > 0:  # Added: Initialize stop_time at startup
-        stop_time = datetime.now(EU_TZ) + timedelta(seconds=STOP_AFTER_SECONDS)
     bot_thread = threading.Thread(target=trading_bot, daemon=True)
     bot_thread.start()
     logger.info("Trading bot started automatically")
