@@ -82,7 +82,7 @@ HEADERS = {
 }
 
 # Database path
-db_path = 'r_bot.bd'
+db_path = 'rr_bot.bd'
 
 # Timezone setup
 EU_TZ = pytz.utc
@@ -208,7 +208,7 @@ def setup_database():
                         logger.info(f"Removed corrupted database file at {db_path}")
 
                 logger.info(f"Attempting to download database from GitHub: {GITHUB_API_URL}")
-                if download_from_github('r_bot.bd', db_path):
+                if download_from_github('rr_bot.bd', db_path):
                     logger.info(f"Downloaded database from GitHub to {db_path}")
                     try:
                         test_conn = sqlite3.connect(db_path, check_same_thread=False)
@@ -276,7 +276,7 @@ def setup_database():
                         logger.info(f"Added column {col} to trades table")
                 conn.commit()
                 logger.info(f"Database initialized successfully at {db_path}, size: {os.path.getsize(db_path)} bytes")
-                upload_to_github(db_path, 'r_bot.bd')
+                upload_to_github(db_path, 'rr_bot.bd')
                 return True
             except sqlite3.Error as e:
                 logger.error(f"SQLite error during database setup (attempt {attempt + 1}/3): {e}", exc_info=True)
@@ -696,7 +696,7 @@ def trading_bot():
         'strategy': 'initial'
     }
     store_signal(initial_signal)
-    upload_to_github(db_path, 'r_bot.bd')
+    upload_to_github(db_path, 'rr_bot.bd')
     logger.info("Initial hold signal generated")
 
     for attempt in range(3):
@@ -755,7 +755,7 @@ def trading_bot():
                             send_telegram_message(signal, BOT_TOKEN, CHAT_ID)
                     position = None
                 logger.info("Bot stopped due to time limit")
-                upload_to_github(db_path, 'r_bot.bd')
+                upload_to_github(db_path, 'rr_bot.bd')
                 break
 
             if not bot_active:
@@ -826,7 +826,7 @@ def trading_bot():
                                         position = None
                                     bot_active = False
                                 bot.send_message(chat_id=command_chat_id, text="Bot stopped.")
-                                upload_to_github(db_path, 'r_bot.bd')
+                                upload_to_github(db_path, 'rr_bot.bd')
                             elif text.startswith('/stop') and text[5:].isdigit():
                                 multiplier = int(text[5:])
                                 with bot_lock:
@@ -852,7 +852,7 @@ def trading_bot():
                                         position = None
                                     bot_active = False
                                 bot.send_message(chat_id=command_chat_id, text=f"Bot paused for {pause_duration/60} minutes.")
-                                upload_to_github(db_path, 'r_bot.bd')
+                                upload_to_github(db_path, 'rr_bot.bd')
                             elif text == '/start':
                                 with bot_lock:
                                     if not bot_active:
@@ -923,7 +923,7 @@ def trading_bot():
                     threading.Thread(target=send_telegram_message, args=(signal, BOT_TOKEN, CHAT_ID), daemon=True).start()
 
             if bot_active and action != "hold":
-                upload_to_github(db_path, 'r_bot.bd')
+                upload_to_github(db_path, 'rr_bot.bd')
 
             loop_end_time = datetime.now(EU_TZ)
             processing_time = (loop_end_time - loop_start_time).total_seconds()
@@ -1182,7 +1182,7 @@ def cleanup():
     if conn:
         conn.close()
         logger.info("Database connection closed")
-        upload_to_github(db_path, 'r_bot.bd')
+        upload_to_github(db_path, 'rr_bot.bd')
         logger.info("Final database backup to GitHub completed")
 
 atexit.register(cleanup)
