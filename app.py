@@ -1200,7 +1200,7 @@ keep_alive_thread.start()
 logger.info("Keep-alive thread started")
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 5000))
+    port = int(os.getenv("PORT", 4040))
     logger.info(f"Starting Flask server on port {port}")
     asyncio.run(main())
     app.run(host='0.0.0.0', port=port, debug=False)
