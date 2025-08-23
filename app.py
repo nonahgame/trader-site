@@ -255,12 +255,12 @@ def setup_database():
                             macd_signal REAL,
                             macd_hist REAL,
                             lst_diff REAL,
-                            supertrend REAL,  # Added for Supertrend
-                            supertrend_trend INTEGER,  # Added for Supertrend trend (0 or 1)
-                            stoch_rsi REAL,  # Added for Stochastic RSI
-                            stoch_k REAL,  # Added for Stochastic RSI K
-                            stoch_d REAL,  # Added for Stochastic RSI D
-                            obv REAL,  # Added for OBV
+                            supertrend REAL,
+                            supertrend_trend INTEGER,
+                            stoch_rsi REAL,
+                            stoch_k REAL,
+                            stoch_d REAL,
+                            obv REAL,
                             message TEXT,
                             timeframe TEXT,
                             order_id TEXT,
