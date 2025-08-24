@@ -197,7 +197,15 @@ def setup_database():
         for attempt in range(3):
             try:
                 logger.info(f"Database setup attempt {attempt + 1}/3")
-                if os.path.exists(db_path):
+                
+                # Check if database file exists, create it if it doesn't
+                if not os.path.exists(db_path):
+                    logger.info(f"Database file {db_path} does not exist. Creating new database.")
+                    # Connect to database (this creates the file if it doesn't exist)
+                    conn = sqlite3.connect(db_path, check_same_thread=False)
+                    logger.info(f"Created new database file at {db_path}")
+                else:
+                    # Check if existing database is valid
                     try:
                         test_conn = sqlite3.connect(db_path, check_same_thread=False)
                         c = test_conn.cursor()
@@ -208,7 +216,11 @@ def setup_database():
                         logger.error(f"Existing database at {db_path} is corrupted: {e}")
                         os.remove(db_path)
                         logger.info(f"Removed corrupted database file at {db_path}")
+                        # Create new database file
+                        conn = sqlite3.connect(db_path, check_same_thread=False)
+                        logger.info(f"Created new database file at {db_path} after corruption")
 
+                # Attempt to download from GitHub if no valid local database
                 logger.info(f"Attempting to download database from GitHub: {GITHUB_API_URL}")
                 if download_from_github('rr_bot.bd', db_path):
                     logger.info(f"Downloaded database from GitHub to {db_path}")
@@ -223,10 +235,17 @@ def setup_database():
                         logger.error(f"Downloaded database is corrupted: {e}")
                         os.remove(db_path)
                         logger.info(f"Removed invalid downloaded database file at {db_path}")
+                        # Create new database file
+                        conn = sqlite3.connect(db_path, check_same_thread=False)
+                        logger.info(f"Created new database file at {db_path} after failed download")
 
-                logger.info(f"Connecting to database at {db_path}")
-                conn = sqlite3.connect(db_path, check_same_thread=False)
+                # Connect to the database (either newly created or existing)
+                if conn is None:
+                    conn = sqlite3.connect(db_path, check_same_thread=False)
+                logger.info(f"Connected to database at {db_path}")
+
                 c = conn.cursor()
+                # Check if trades table exists
                 c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trades';")
                 if not c.fetchone():
                     c.execute('''
