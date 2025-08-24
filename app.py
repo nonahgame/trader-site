@@ -1,5 +1,4 @@
-# 2
-# app.py 4040
+# app.py SOL 5000
 import os
 import pandas as pd
 import numpy as np
@@ -19,7 +18,6 @@ from flask import Flask, render_template, jsonify
 import atexit
 import asyncio
 
-# Set Pandas option to avoid downcasting warning
 pd.set_option('future.no_silent_downcasting', True)
 
 # Custom formatter for EU timezone (UTC)
@@ -331,7 +329,7 @@ def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, r
 
 # Calculate technical indicators
 def add_technical_indicators(df):
-    start_time = time.time()  # Define start_time for elapsed calculation
+    #start_time = time.time()
     try:
         # Optimize DataFrame operations by avoiding redundant calculations
         df = df.copy()  # Create a copy to avoid modifying the original
@@ -381,15 +379,16 @@ def add_technical_indicators(df):
                 final_lowerband.iloc[i] = final_lowerband.iloc[i-1]
 
         supertrend = final_upperband.where(df['Close'] <= final_upperband, final_lowerband)
-        # Keep supertrend_trend as boolean for signal calculation, then convert to int
+        # Keep supertrend_trend as boolean for signal calculation
         supertrend_trend = df['Close'] > final_upperband.shift()
-        supertrend_trend = supertrend_trend.astype(bool).fillna(True).astype(int)  # Modified to handle downcasting
+        supertrend_trend = supertrend_trend.fillna(True)  # Default to True for initial values
         df['supertrend'] = supertrend
-        df['supertrend_trend'] = supertrend_trend  # Store as int (0/1)
-        # Calculate supertrend_signal using integer operations
+        # Store supertrend_trend as int (0/1) only in the final DataFrame
+        df['supertrend_trend'] = supertrend_trend.astype(int)  # 1 for uptrend, 0 for downtrend
+        # Calculate supertrend_signal using boolean operations
         df['supertrend_signal'] = np.where(
-            (supertrend_trend == 1) & (supertrend_trend.shift() == 0), 'buy',
-            np.where((supertrend_trend == 0) & (supertrend_trend.shift() == 1), 'sell', None)
+            supertrend_trend & ~supertrend_trend.shift().fillna(True), 'buy',
+            np.where(~supertrend_trend & supertrend_trend.shift().fillna(True), 'sell', None)
         )
 
         # Stochastic RSI
@@ -409,11 +408,11 @@ def add_technical_indicators(df):
         direction = np.sign(close_diff)
         df['obv'] = (direction * df['Volume']).fillna(0).cumsum()
 
-        elapsed = time.time() - start_time
+        #elapsed = time.time() - start_time
         logger.debug(f"Technical indicators calculated in {elapsed:.3f}s: {df.iloc[-1][['ema1', 'ema2', 'rsi', 'k', 'd', 'j', 'macd', 'macd_signal', 'macd_hist', 'diff', 'lst_diff', 'supertrend', 'supertrend_trend', 'supertrend_signal', 'stoch_k', 'stoch_d', 'obv']].to_dict()}")
         return df
     except Exception as e:
-        elapsed = time.time() - start_time
+        #elapsed = time.time() - start_time
         logger.error(f"Error calculating indicators after {elapsed:.3f}s: {e}")
         return df
 
@@ -466,7 +465,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
             action = "sell"
 
     if action == "hold" and position is None:
-        if (kdj_j < -26.00 and ema1 < ema2 or kdj_j < kdj_d and macd < macd_signal and rsi < 19.00): # or (close_price > open_price and kdj_j > kdj_d or ema1 > ema2 and macd > macd_signal):
+        if (kdj_j < - 26.00 and ema1 < ema2 or kdj_j < kdj_d and macd < macd_signal and rsi < 19.00): # or (close_price > open_price and kdj_j > kdj_d or ema1 > ema2 and macd > macd_signal):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
         elif (close_price > open_price and kdj_j > kdj_d and ema1 > ema2):# and macd > macd_signal and kdj_j < 115.00 and ema1 > ema2):
@@ -703,7 +702,6 @@ def trading_bot():
     logger.info("Initial hold signal generated")
 
     for attempt in range(3):
-        start_time = time.time()  # Define start_time for elapsed
         try:
             ohlcv = exchange.fetch_ohlcv(SYMBOL, timeframe=TIMEFRAME, limit=100)
             if not ohlcv:
@@ -719,12 +717,11 @@ def trading_bot():
             logger.info(f"Initial df shape: {df.shape}")
             break
         except Exception as e:
-            elapsed = time.time() - start_time
             logger.error(f"Error fetching historical data (attempt {attempt + 1}/3): {e}")
             if attempt < 2:
                 time.sleep(5)
             else:
-                logger.error(f"Failed to fetch historical data for {SYMBOL} after {elapsed:.3f}s")
+                logger.error(f"Failed to fetch historical data for {SYMBOL}")
                 return
 
     timeframe_seconds = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '1d': 86400}.get(TIMEFRAME, TIMEFRAMES)
@@ -979,7 +976,7 @@ def create_signal(action, current_price, latest_data, df, profit, total_profit, 
         'stoch_rsi': float(latest['stoch_rsi']) if not pd.isna(latest['stoch_rsi']) else 0.0,
         'stoch_k': float(latest['stoch_k']) if not pd.isna(latest['stoch_k']) else 0.0,
         'stoch_d': float(latest['stoch_d']) if not pd.isna(latest['stoch_d']) else 0.0,
-        'obv': float(latest['obv']) if not pd.isna(latest['stoch_d']) else 0.0,
+        'obv': float(latest['obv']) if not pd.isna(latest['obv']) else 0.0,
         'message': msg,
         'timeframe': TIMEFRAME,
         'order_id': order_id,
@@ -1136,18 +1133,6 @@ def index():
             rows = c.fetchall()
             columns = [col[0] for col in c.description]
             trades = [dict(zip(columns, row)) for row in rows]
-            # Ensure numeric fields are floats
-            numeric_fields = ['price', 'open_price', 'close_price', 'volume', 'percent_change', 'stop_loss',
-                             'take_profit', 'profit', 'total_profit', 'return_profit', 'total_return_profit',
-                             'ema1', 'ema2', 'rsi', 'k', 'd', 'j', 'diff', 'macd', 'macd_signal', 'macd_hist',
-                             'lst_diff', 'supertrend', 'stoch_rsi', 'stoch_k', 'stoch_d', 'obv']
-            for trade in trades:
-                for field in numeric_fields:
-                    if field in trade and trade[field] is not None:
-                        try:
-                            trade[field] = float(trade[field])
-                        except (ValueError, TypeError):
-                            trade[field] = 0.0
             signal = trades[0] if trades else None
             stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S") if stop_time else "N/A"
             current_time = datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S")
