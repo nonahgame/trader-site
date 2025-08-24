@@ -212,17 +212,17 @@
                 <td class="{% if trade.total_return_profit is not none and trade.total_return_profit|float < 0 %}negative{% else %}non-negative{% endif %}">{{ trade.total_return_profit | default('N/A') | round(2) }}</td>
                 <td>{{ trade.order_id if trade.order_id else "N/A" }}</td>
                 <td>
-                    KDJ J: <span class="{% if trade.j|float < 0 %}kdj-negative{% elif trade.j|float > 65 %}kdj-overbought{% else %}kdj-neutral{% endif %}">{{ trade.j | default('N/A') | string | round(2) }}</span>,
-                    RSI: <span class="{% if trade.rsi|float < 15 %}rsi-oversold{% elif trade.rsi|float > 60 %}rsi-overbought{% else %}rsi-neutral{% endif %}">{{ trade.rsi | default('N/A') | string | round(2) }}</span>,
-                    Diff: <span class="{% if trade.diff|float > 0 %}diff-positive{% else %}diff-negative{% endif %}">{{ trade.diff | default('N/A') | string | round(2) }}</span>,
-                    MACD: <span class="{% if trade.macd|float > 0 %}macd-positive{% else %}macd-negative{% endif %}">{{ trade.macd | default('N/A') | string | round(2) }}</span>,
-                    Lst Diff: <span class="{% if trade.lst_diff|float > 0 %}lst_diff-positive{% else %}lst_diff-negative{% endif %}">{{ trade.lst_diff | default('N/A') | string | round(2) }}</span>,
+                    KDJ J: <span class="{% if trade.j|float < 0 %}kdj-negative{% elif trade.j|float > 65 %}kdj-overbought{% else %}kdj-neutral{% endif %}">{{ trade.j | default('N/A') | string }}</span>,
+                    RSI: <span class="{% if trade.rsi|float < 15 %}rsi-oversold{% elif trade.rsi|float > 60 %}rsi-overbought{% else %}rsi-neutral{% endif %}">{{ trade.rsi | default('N/A') | string }}</span>,
+                    Diff: <span class="{% if trade.diff|float > 0 %}diff-positive{% else %}diff-negative{% endif %}">{{ trade.diff | default('N/A') | string }}</span>,
+                    MACD: <span class="{% if trade.macd|float > 0 %}macd-positive{% else %}macd-negative{% endif %}">{{ trade.macd | default('N/A') | string }}</span>,
+                    Lst Diff: <span class="{% if trade.lst_diff|float > 0 %}lst_diff-positive{% else %}lst_diff-negative{% endif %}">{{ trade.lst_diff | default('N/A') | string }}</span>,
                     <!-- # Added new indicators with styling -->
                     Supertrend: <span>{{ trade.supertrend | default('N/A') | string | round(2) }}</span>,
                     ST Trend: <span class="{% if trade.supertrend_trend|float == 1 %}supertrend-up{% else %}supertrend-down{% endif %}">{{ 'Up' if trade.supertrend_trend|float == 1 else 'Down' }}</span>,
-                    Stoch K: <span class="{% if trade.stoch_k|float > 80 %}stoch-overbought{% elif trade.stoch_k|float < 20 %}stoch-oversold{% else %}stoch-neutral{% endif %}">{{ trade.stoch_k | default('N/A') | string | round(2) }}</span>,
-                    Stoch D: <span class="{% if trade.stoch_d|float > 80 %}stoch-overbought{% elif trade.stoch_d|float < 20 %}stoch-oversold{% else %}stoch-neutral{% endif %}">{{ trade.stoch_d | default('N/A') | string | round(2) }}</span>,
-                    OBV: <span class="{% if trade.obv|float > 0 %}obv-positive{% else %}obv-negative{% endif %}">{{ trade.obv | default('N/A') | string | round(2) }}</span>
+                    Stoch K: <span class="{% if trade.stoch_k|float > 80 %}stoch-overbought{% elif trade.stoch_k|float < 20 %}stoch-oversold{% else %}stoch-neutral{% endif %}">{{ trade.stoch_k | default('N/A') | string }}</span>,
+                    Stoch D: <span class="{% if trade.stoch_d|float > 80 %}stoch-overbought{% elif trade.stoch_d|float < 20 %}stoch-oversold{% else %}stoch-neutral{% endif %}">{{ trade.stoch_d | default('N/A') | string }}</span>,
+                    OBV: <span class="{% if trade.obv|float > 0 %}obv-positive{% else %}obv-negative{% endif %}">{{ trade.obv | default('N/A') | string }}</span>
                     {{ trade.message }}
                 </td>
             </tr>
