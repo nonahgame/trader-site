@@ -329,7 +329,7 @@ def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, r
 
 # Calculate technical indicators
 def add_technical_indicators(df):
-    #start_time = time.time()
+    start_time = time.time()
     try:
         # Optimize DataFrame operations by avoiding redundant calculations
         df = df.copy()  # Create a copy to avoid modifying the original
@@ -408,11 +408,11 @@ def add_technical_indicators(df):
         direction = np.sign(close_diff)
         df['obv'] = (direction * df['Volume']).fillna(0).cumsum()
 
-        #elapsed = time.time() - start_time
+        elapsed = time.time() - start_time
         logger.debug(f"Technical indicators calculated in {elapsed:.3f}s: {df.iloc[-1][['ema1', 'ema2', 'rsi', 'k', 'd', 'j', 'macd', 'macd_signal', 'macd_hist', 'diff', 'lst_diff', 'supertrend', 'supertrend_trend', 'supertrend_signal', 'stoch_k', 'stoch_d', 'obv']].to_dict()}")
         return df
     except Exception as e:
-        #elapsed = time.time() - start_time
+        elapsed = time.time() - start_time
         logger.error(f"Error calculating indicators after {elapsed:.3f}s: {e}")
         return df
 
