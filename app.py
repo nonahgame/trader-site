@@ -1,4 +1,5 @@
-# app.py SOL 5000
+# 2
+# app.py 4040
 import os
 import pandas as pd
 import numpy as np
@@ -203,8 +204,7 @@ def setup_database():
                         test_conn = sqlite3.connect(db_path, check_same_thread=False)
                         c = test_conn.cursor()
                         c.execute("SELECT name FROM sqlite_master WHERE type='table';")
-                        tables = c.fetchall()
-                        logger.info(f"Existing database found at {db_path}, tables: {tables}")
+                        logger.info(f"Existing database found at {db_path}, tables: {c.fetchall()}")
                         test_conn.close()
                     except sqlite3.DatabaseError as e:
                         logger.error(f"Existing database at {db_path} is corrupted: {e}")
@@ -279,29 +279,17 @@ def setup_database():
                         c.execute(f"ALTER TABLE trades ADD COLUMN {col} {'REAL' if col in ['return_profit', 'total_return_profit', 'diff', 'macd', 'macd_signal', 'macd_hist', 'lst_diff'] else 'TEXT'};")
                         logger.info(f"Added column {col} to trades table")
                 conn.commit()
-                try:
-                    c.execute("SELECT 1")
-                    logger.info(f"Database connection test successful at {db_path}, size: {os.path.getsize(db_path)} bytes")
-                except sqlite3.Error as e:
-                    logger.error(f"Database connection test failed: {e}")
-                    conn.close()
-                    conn = None
-                    raise
+                logger.info(f"Database initialized successfully at {db_path}, size: {os.path.getsize(db_path)} bytes")
                 upload_to_github(db_path, 'rr_bot.bd')
-                logger.info("Database initialized successfully")
                 return True
             except sqlite3.Error as e:
                 logger.error(f"SQLite error during database setup (attempt {attempt + 1}/3): {e}", exc_info=True)
-                if conn:
-                    conn.close()
                 conn = None
-                time.sleep(5)  # Increased delay to handle potential file locking
+                time.sleep(2)
             except Exception as e:
                 logger.error(f"Unexpected error during database setup (attempt {attempt + 1}/3): {e}", exc_info=True)
-                if conn:
-                    conn.close()
                 conn = None
-                time.sleep(5)
+                time.sleep(2)
         logger.error("Failed to initialize database after 3 attempts")
         conn = None
         return False
@@ -343,14 +331,16 @@ def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, r
 
 # Calculate technical indicators
 def add_technical_indicators(df):
-    start_time = time.time()
+    start_time = time.time()  # Define start_time for elapsed calculation
     try:
-        df = df.copy()
-        df['Close'] = df['Close'].ffill()
-        df['High'] = df['High'].ffill()
-        df['Low'] = df['Low'].ffill()
-        df['Volume'] = df['Volume'].ffill()
+        # Optimize DataFrame operations by avoiding redundant calculations
+        df = df.copy()  # Create a copy to avoid modifying the original
+        df['Close'] = df['Close'].ffill()  # Fill missing Close prices
+        df['High'] = df['High'].ffill()  # Fill missing High prices
+        df['Low'] = df['Low'].ffill()  # Fill missing Low prices
+        df['Volume'] = df['Volume'].ffill()  # Fill missing Volume
 
+        # Original indicators
         df['ema1'] = ta.ema(df['Close'], length=12)
         df['ema2'] = ta.ema(df['Close'], length=26)
         df['rsi'] = ta.rsi(df['Close'], length=14)
@@ -365,6 +355,7 @@ def add_technical_indicators(df):
         df['diff'] = df['Close'] - df['Open']
         df['lst_diff'] = df['ema1'].shift(1) - df['ema1']
 
+        # Supertrend calculation (optimized)
         st_length = 10
         st_multiplier = 3.0
         high_low = df['High'] - df['Low']
@@ -377,7 +368,8 @@ def add_technical_indicators(df):
         basic_lowerband = hl2 - (st_multiplier * atr)
         final_upperband = basic_upperband.copy()
         final_lowerband = basic_lowerband.copy()
-        
+
+        # Vectorized Supertrend calculation
         for i in range(1, len(df)):
             if (basic_upperband.iloc[i] < final_upperband.iloc[i-1]) or (df['Close'].iloc[i-1] > final_upperband.iloc[i-1]):
                 final_upperband.iloc[i] = basic_upperband.iloc[i]
@@ -389,15 +381,18 @@ def add_technical_indicators(df):
                 final_lowerband.iloc[i] = final_lowerband.iloc[i-1]
 
         supertrend = final_upperband.where(df['Close'] <= final_upperband, final_lowerband)
+        # Keep supertrend_trend as boolean for signal calculation, then convert to int
         supertrend_trend = df['Close'] > final_upperband.shift()
-        supertrend_trend = supertrend_trend.astype(bool).fillna(True).astype(int)
+        supertrend_trend = supertrend_trend.astype(bool).fillna(True).astype(int)  # Modified to handle downcasting
         df['supertrend'] = supertrend
-        df['supertrend_trend'] = supertrend_trend
+        df['supertrend_trend'] = supertrend_trend  # Store as int (0/1)
+        # Calculate supertrend_signal using integer operations
         df['supertrend_signal'] = np.where(
             (supertrend_trend == 1) & (supertrend_trend.shift() == 0), 'buy',
             np.where((supertrend_trend == 0) & (supertrend_trend.shift() == 1), 'sell', None)
         )
 
+        # Stochastic RSI
         stoch_rsi_len = 14
         stoch_k_len = 3
         stoch_d_len = 3
@@ -409,12 +404,13 @@ def add_technical_indicators(df):
         df['stoch_k'] = stochrsi.rolling(stoch_k_len, min_periods=1).mean() * 100
         df['stoch_d'] = df['stoch_k'].rolling(stoch_d_len, min_periods=1).mean()
 
+        # OBV
         close_diff = df['Close'].diff().fillna(0)
         direction = np.sign(close_diff)
         df['obv'] = (direction * df['Volume']).fillna(0).cumsum()
 
         elapsed = time.time() - start_time
-        logger.debug(f"Technical indicators calculated in {elapsed:.3f}s: {df.iloc[-1][['ema1', 'ema2', 'rsi', 'k', 'd', 'j', 'macd', 'macd_signal', 'macd_hist', 'diff', 'lst_diff', 'supertrend', 'supertrend_trend', 'stoch_k', 'stoch_d', 'obv']].to_dict()}")
+        logger.debug(f"Technical indicators calculated in {elapsed:.3f}s: {df.iloc[-1][['ema1', 'ema2', 'rsi', 'k', 'd', 'j', 'macd', 'macd_signal', 'macd_hist', 'diff', 'lst_diff', 'supertrend', 'supertrend_trend', 'supertrend_signal', 'stoch_k', 'stoch_d', 'obv']].to_dict()}")
         return df
     except Exception as e:
         elapsed = time.time() - start_time
@@ -426,7 +422,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
     if df.empty or len(df) < 1:
         logger.warning("DataFrame is empty or too small for decision.")
         return "hold", None, None, None
-    
+
     latest = df.iloc[-1]
     close_price = latest['Close']
     open_price = latest['Open']
@@ -435,17 +431,19 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
     kdj_j = latest['j'] if not pd.isna(latest['j']) else 0.0
     ema1 = latest['ema1'] if not pd.isna(latest['ema1']) else 0.0
     ema2 = latest['ema2'] if not pd.isna(latest['ema2']) else 0.0
-    macd = latest['macd'] if not pd.isna(latest['macd']) else 0.0
-    macd_signal = latest['macd_signal'] if not pd.isna(latest['macd_signal']) else 0.0
+    macd = latest['macd'] if not pd.isna(latest['macd']) else 0.0  # DIF
+    macd_signal = latest['macd_signal'] if not pd.isna(latest['macd_signal']) else 0.0  # DEA
     rsi = latest['rsi'] if not pd.isna(latest['rsi']) else 0.0
     stop_loss = None
     take_profit = None
     action = "hold"
     order_id = None
 
+    # Calculate quantity based on 11.00 USDT
     usdt_amount = AMOUNTS
     try:
         quantity = usdt_amount / close_price
+        # Adjust quantity to meet Binance precision requirements
         market = exchange.load_markets()[SYMBOL]
         quantity_precision = market['precision']['amount']
         quantity = exchange.amount_to_precision(SYMBOL, quantity)
@@ -453,7 +451,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
     except Exception as e:
         logger.error(f"Error calculating quantity: {e}")
         return "hold", None, None, None
-
+    # market logics
     if position == "long" and buy_price is not None:
         stop_loss = buy_price * (1 + stop_loss_percent / 100)
         take_profit = buy_price * (1 + take_profit_percent / 100)
@@ -463,18 +461,18 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         elif close_price >= take_profit:
             logger.info("Take-profit triggered.")
             action = "sell"
-        elif (close_price < open_price):
+        elif (close_price < open_price):# and kdj_j > kdj_d and macd > macd_signal and ema1 > ema2 and kdj_j > 58): #or (kdj_j < kdj_d and macd < macd_signal and close_price < open_price and kdj_j > 15): # or (close_price < open_price and kdj_j < kdj_d and macd > macd_signal):
             logger.info(f"Sell condition met: close={close_price:.2f}, open={open_price:.2f}, kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, DIF={macd:.2f}, DEA={macd_signal:.2f}")
             action = "sell"
 
     if action == "hold" and position is None:
-        if (kdj_j < -26.00 and ema1 < ema2 or kdj_j < kdj_d and macd < macd_signal and rsi < 19.00):
+        if (kdj_j < -26.00 and ema1 < ema2 or kdj_j < kdj_d and macd < macd_signal and rsi < 19.00): # or (close_price > open_price and kdj_j > kdj_d or ema1 > ema2 and macd > macd_signal):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
-        elif (close_price > open_price and kdj_j > kdj_d and ema1 > ema2):
+        elif (close_price > open_price and kdj_j > kdj_d and ema1 > ema2):# and macd > macd_signal and kdj_j < 115.00 and ema1 > ema2):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
-        elif (close_price > open_price and macd > macd_signal and ema1 > ema2):
+        elif (close_price > open_price and macd > macd_signal and ema1 > ema2):# and ema1 > ema2 and kdj_j < 114.00):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
 
@@ -607,10 +605,10 @@ def get_next_timeframe_boundary(current_time, timeframe_seconds):
 def trading_bot():
     global bot_active, position, buy_price, total_profit, pause_duration, pause_start, conn, stop_time
     bot = None
-    start_time = time.time()
     try:
         bot = Bot(token=BOT_TOKEN)
         logger.info("Telegram bot initialized successfully")
+        # Send test message to verify Telegram setup
         test_signal = {
             'time': datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S"),
             'action': 'test',
@@ -705,7 +703,7 @@ def trading_bot():
     logger.info("Initial hold signal generated")
 
     for attempt in range(3):
-        start_time = time.time()
+        start_time = time.time()  # Define start_time for elapsed
         try:
             ohlcv = exchange.fetch_ohlcv(SYMBOL, timeframe=TIMEFRAME, limit=100)
             if not ohlcv:
@@ -730,7 +728,7 @@ def trading_bot():
                 return
 
     timeframe_seconds = {'1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '1d': 86400}.get(TIMEFRAME, TIMEFRAMES)
-    
+
     current_time = datetime.now(EU_TZ)
     seconds_to_wait = get_next_timeframe_boundary(current_time, timeframe_seconds)
     logger.info(f"Waiting {seconds_to_wait:.2f} seconds to align with next {TIMEFRAME} boundary")
@@ -981,7 +979,7 @@ def create_signal(action, current_price, latest_data, df, profit, total_profit, 
         'stoch_rsi': float(latest['stoch_rsi']) if not pd.isna(latest['stoch_rsi']) else 0.0,
         'stoch_k': float(latest['stoch_k']) if not pd.isna(latest['stoch_k']) else 0.0,
         'stoch_d': float(latest['stoch_d']) if not pd.isna(latest['stoch_d']) else 0.0,
-        'obv': float(latest['obv']) if not pd.isna(latest['obv']) else 0.0,
+        'obv': float(latest['obv']) if not pd.isna(latest['stoch_d']) else 0.0,
         'message': msg,
         'timeframe': TIMEFRAME,
         'order_id': order_id,
@@ -1004,7 +1002,7 @@ def store_signal(signal):
                     time, action, symbol, price, open_price, close_price, volume,
                     percent_change, stop_loss, take_profit, profit, total_profit,
                     return_profit, total_return_profit, ema1, ema2, rsi, k, d, j, diff,
-                    macd, macd_signal, macd_hist, lst_diff, supertrend, supertrend_trend, 
+                    macd, macd_signal, macd_hist, lst_diff, supertrend, supertrend_trend,
                     stoch_rsi, stoch_k, stoch_d, obv, message, timeframe, order_id, strategy
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
@@ -1026,8 +1024,6 @@ def store_signal(signal):
         except Exception as e:
             elapsed = time.time() - start_time
             logger.error(f"Error storing signal after {elapsed:.3f}s: {e}")
-            if conn:
-                conn.close()
             conn = None
 
 def get_performance():
@@ -1071,8 +1067,6 @@ Total Return Profit: {total_return_profit_db:.2f}
         except Exception as e:
             elapsed = time.time() - start_time
             logger.error(f"Error fetching performance after {elapsed:.3f}s: {e}")
-            if conn:
-                conn.close()
             conn = None
             return f"Error fetching performance data: {str(e)}"
 
@@ -1119,8 +1113,6 @@ Total Return Profit: {total_return_profit_db:.2f}
         except Exception as e:
             elapsed = time.time() - start_time
             logger.error(f"Error fetching trade counts after {elapsed:.3f}s: {e}")
-            if conn:
-                conn.close()
             conn = None
             return f"Error fetching trade counts: {str(e)}"
 
@@ -1131,7 +1123,6 @@ def index():
     start_time = time.time()
     with db_lock:
         try:
-            # Check if database connection is valid; reinitialize if necessary
             if conn is None:
                 logger.warning("Database connection is None in index route. Attempting to reinitialize.")
                 if not setup_database():
@@ -1140,56 +1131,24 @@ def index():
                     current_time = datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S")
                     return render_template('index.html', signal=None, status=status, timeframe=TIMEFRAME,
                                          trades=[], stop_time=stop_time_str, current_time=current_time)
-            
-            # Verify database connection is operational
-            try:
-                c = conn.cursor()
-                c.execute("SELECT 1")
-            except sqlite3.Error as e:
-                logger.error(f"Database connection invalid: {e}. Reinitializing.")
-                if conn:
-                    conn.close()
-                conn = None
-                if not setup_database():
-                    logger.error("Failed to reinitialize database for index route after connection error")
-                    stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S") if stop_time else "N/A"
-                    current_time = datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S")
-                    return render_template('index.html', signal=None, status=status, timeframe=TIMEFRAME,
-                                         trades=[], stop_time=stop_time_str, current_time=current_time)
-
             c = conn.cursor()
             c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 16")
             rows = c.fetchall()
             columns = [col[0] for col in c.description]
             trades = [dict(zip(columns, row)) for row in rows]
-            signal = trades[0] if trades else None
-
-            # Define numeric fields that should be floats
+            # Ensure numeric fields are floats
             numeric_fields = ['price', 'open_price', 'close_price', 'volume', 'percent_change', 'stop_loss',
                              'take_profit', 'profit', 'total_profit', 'return_profit', 'total_return_profit',
                              'ema1', 'ema2', 'rsi', 'k', 'd', 'j', 'diff', 'macd', 'macd_signal', 'macd_hist',
                              'lst_diff', 'supertrend', 'stoch_rsi', 'stoch_k', 'stoch_d', 'obv']
-
-            # Convert numeric fields to floats for trades
             for trade in trades:
                 for field in numeric_fields:
-                    if field in trade:
+                    if field in trade and trade[field] is not None:
                         try:
-                            trade[field] = float(trade[field]) if trade[field] is not None else 0.0
+                            trade[field] = float(trade[field])
                         except (ValueError, TypeError):
-                            logger.warning(f"Invalid value for {field} in trade: {trade[field]}. Setting to 0.0")
                             trade[field] = 0.0
-
-            # Convert numeric fields to floats for signal (if it exists)
-            if signal:
-                for field in numeric_fields:
-                    if field in signal:
-                        try:
-                            signal[field] = float(signal[field]) if signal[field] is not None else 0.0
-                        except (ValueError, TypeError):
-                            logger.warning(f"Invalid value for {field} in signal: {signal[field]}. Setting to 0.0")
-                            signal[field] = 0.0
-
+            signal = trades[0] if trades else None
             stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S") if stop_time else "N/A"
             current_time = datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S")
             elapsed = time.time() - start_time
@@ -1199,8 +1158,6 @@ def index():
         except Exception as e:
             elapsed = time.time() - start_time
             logger.error(f"Error rendering index.html after {elapsed:.3f}s: {e}")
-            if conn:
-                conn.close()
             conn = None
             return "<h1>Error</h1><p>Failed to load page. Please try again later.</p>", 500
 
@@ -1234,8 +1191,6 @@ def trades():
         except Exception as e:
             elapsed = time.time() - start_time
             logger.error(f"Error fetching trades after {elapsed:.3f}s: {e}")
-            if conn:
-                conn.close()
             conn = None
             return jsonify({"error": f"Failed to fetch trades: {str(e)}"}), 500
 
