@@ -1152,6 +1152,18 @@ def index():
             rows = c.fetchall()
             columns = [col[0] for col in c.description]
             trades = [dict(zip(columns, row)) for row in rows]
+            # Ensure numeric fields are floats
+            numeric_fields = ['price', 'open_price', 'close_price', 'volume', 'percent_change', 'stop_loss',
+                             'take_profit', 'profit', 'total_profit', 'return_profit', 'total_return_profit',
+                             'ema1', 'ema2', 'rsi', 'k', 'd', 'j', 'diff', 'macd', 'macd_signal', 'macd_hist',
+                             'lst_diff', 'supertrend', 'stoch_rsi', 'stoch_k', 'stoch_d', 'obv']
+            for trade in trades:
+                for field in numeric_fields:
+                    if field in trade and trade[field] is not None:
+                        try:
+                            trade[field] = float(trade[field])
+                        except (ValueError, TypeError):
+                            trade[field] = 0.0
             signal = trades[0] if trades else None
             stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S") if stop_time else "N/A"
             current_time = datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S")
