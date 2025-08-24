@@ -978,7 +978,7 @@ def create_signal(action, current_price, latest_data, df, profit, total_profit, 
         'stoch_rsi': float(latest['stoch_rsi']) if not pd.isna(latest['stoch_rsi']) else 0.0,
         'stoch_k': float(latest['stoch_k']) if not pd.isna(latest['stoch_k']) else 0.0,
         'stoch_d': float(latest['stoch_d']) if not pd.isna(latest['stoch_d']) else 0.0,
-        'obv': float(latest['obv']) if not pd.isna(latest['stoch_d']) else 0.0,
+        'obv': float(latest['obv']) if not pd.isna(latest['obv']) else 0.0,
         'message': msg,
         'timeframe': TIMEFRAME,
         'order_id': order_id,
@@ -1122,32 +1122,62 @@ def index():
     start_time = time.time()
     with db_lock:
         try:
-            if conn is None:
-                logger.warning("Database connection is None in index route. Attempting to reinitialize.")
+            # Check if database connection is valid; reinitialize if necessary
+            if conn is None or conn.closed:
+                logger.warning("Database connection is None or closed in index route. Attempting to reinitialize.")
                 if not setup_database():
                     logger.error("Failed to reinitialize database for index route")
                     stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S") if stop_time else "N/A"
                     current_time = datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S")
                     return render_template('index.html', signal=None, status=status, timeframe=TIMEFRAME,
                                          trades=[], stop_time=stop_time_str, current_time=current_time)
+            
+            # Verify database connection is operational
+            try:
+                c = conn.cursor()
+                c.execute("SELECT 1")
+            except sqlite3.Error as e:
+                logger.error(f"Database connection invalid: {e}. Reinitializing.")
+                if not setup_database():
+                    logger.error("Failed to reinitialize database for index route after connection error")
+                    stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S") if stop_time else "N/A"
+                    current_time = datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S")
+                    return render_template('index.html', signal=None, status=status, timeframe=TIMEFRAME,
+                                         trades=[], stop_time=stop_time_str, current_time=current_time)
+
             c = conn.cursor()
             c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 16")
             rows = c.fetchall()
             columns = [col[0] for col in c.description]
             trades = [dict(zip(columns, row)) for row in rows]
-            # Ensure numeric fields are floats
+            signal = trades[0] if trades else None
+
+            # Define numeric fields that should be floats
             numeric_fields = ['price', 'open_price', 'close_price', 'volume', 'percent_change', 'stop_loss',
                              'take_profit', 'profit', 'total_profit', 'return_profit', 'total_return_profit',
                              'ema1', 'ema2', 'rsi', 'k', 'd', 'j', 'diff', 'macd', 'macd_signal', 'macd_hist',
                              'lst_diff', 'supertrend', 'stoch_rsi', 'stoch_k', 'stoch_d', 'obv']
+
+            # Convert numeric fields to floats for trades
             for trade in trades:
                 for field in numeric_fields:
-                    if field in trade and trade[field] is not None:
+                    if field in trade:
                         try:
-                            trade[field] = float(trade[field])
+                            trade[field] = float(trade[field]) if trade[field] is not None else 0.0
                         except (ValueError, TypeError):
+                            logger.warning(f"Invalid value for {field} in trade: {trade[field]}. Setting to 0.0")
                             trade[field] = 0.0
-            signal = trades[0] if trades else None
+
+            # Convert numeric fields to floats for signal (if it exists)
+            if signal:
+                for field in numeric_fields:
+                    if field in signal:
+                        try:
+                            signal[field] = float(signal[field]) if signal[field] is not None else 0.0
+                        except (ValueError, TypeError):
+                            logger.warning(f"Invalid value for {field} in signal: {signal[field]}. Setting to 0.0")
+                            signal[field] = 0.0
+
             stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S") if stop_time else "N/A"
             current_time = datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S")
             elapsed = time.time() - start_time
