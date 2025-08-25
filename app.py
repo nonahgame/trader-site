@@ -963,45 +963,52 @@ def trading_bot():
 
 # Helper functions
 def create_signal(action, current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, msg, order_id, strategy):
-    latest = df.iloc[-1]
+    def safe_float(val, default=0.0):
+        return float(val) if val is not None and not pd.isna(val) else default
+
+    def safe_int(val, default=0):
+        return int(val) if val is not None and not pd.isna(val) else default
+
+    latest = df.iloc[-1] if not df.empty else pd.Series()
+
     return {
-        'time': datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+        'time': datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S") if 'EU_TZ' in globals() else datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
         'action': action,
         'symbol': SYMBOL,
         'price': float(current_price),
-        'open_price': float(latest_data['Open']) if not pd.isna(latest_data['Open']) else 0.0,
-        'close_price': float(latest_data['Close']) if not pd.isna(latest_data['Close']) else 0.0,
-        'volume': float(latest_data['Volume']) if not pd.isna(latest_data['Volume']) else 0.0,
-        'percent_change': float(((current_price - df['Close'].iloc[-2]) / df['Close'].iloc[-2] * 100) if len(df) >= 2 and df['Close'].iloc[-2] != 0 else 0.0),
+        'open_price': safe_float(latest_data.get('Open')),
+        'close_price': safe_float(latest_data.get('Close')),
+        'volume': safe_float(latest_data.get('Volume')),
+        'percent_change': float(((current_price - df['Close'].iloc[-2]) / df['Close'].iloc[-2] * 100)
+                                if len(df) >= 2 and df['Close'].iloc[-2] != 0 else 0.0),
         'stop_loss': None,
         'take_profit': None,
-        'profit': float(profit),
-        'total_profit': float(total_profit),
-        'return_profit': float(return_profit),
-        'total_return_profit': float(total_return_profit),
-        'ema1': float(latest['ema1']) if not pd.isna(latest['ema1']) else 0.0,
-        'ema2': float(latest['ema2']) if not pd.isna(latest['ema2']) else 0.0,
-        'rsi': float(latest['rsi']) if not pd.isna(latest['rsi']) else 0.0,
-        'k': float(latest['k']) if not pd.isna(latest['k']) else 0.0,
-        'd': float(latest['d']) if not pd.isna(latest['d']) else 0.0,
-        'j': float(latest['j']) if not pd.isna(latest['j']) else 0.0,
-        'diff': float(latest['diff']) if not pd.isna(latest['diff']) else 0.0,
-        'macd': float(latest['macd']) if not pd.isna(latest['macd']) else 0.0,
-        'macd_signal': float(latest['macd_signal']) if not pd.isna(latest['macd_signal']) else 0.0,
-        'macd_hist': float(latest['macd_hist']) if not pd.isna(latest['macd_hist']) else 0.0,
-        'lst_diff': float(latest['lst_diff']) if not pd.isna(latest['lst_diff']) else 0.0,
-        'supertrend': float(latest['supertrend']) if not pd.isna(latest['supertrend']) else 0.0,
-        'supertrend_trend': int(latest['supertrend_trend']) if not pd.isna(latest['supertrend_trend']) else 0,
-        'stoch_rsi': float(latest['stoch_rsi']) if not pd.isna(latest['stoch_rsi']) else 0.0,
-        'stoch_k': float(latest['stoch_k']) if not pd.isna(latest['stoch_k']) else 0.0,
-        'stoch_d': float(latest['stoch_d']) if not pd.isna(latest['stoch_d']) else 0.0,
-        'obv': float(latest['obv']) if not pd.isna(latest['obv']) else 0.0,
+        'profit': safe_float(profit),
+        'total_profit': safe_float(total_profit),
+        'return_profit': safe_float(return_profit),
+        'total_return_profit': safe_float(total_return_profit),
+        'ema1': safe_float(latest.get('ema1')),
+        'ema2': safe_float(latest.get('ema2')),
+        'rsi': safe_float(latest.get('rsi')),
+        'k': safe_float(latest.get('k')),
+        'd': safe_float(latest.get('d')),
+        'j': safe_float(latest.get('j')),
+        'diff': safe_float(latest.get('diff')),
+        'macd': safe_float(latest.get('macd')),
+        'macd_signal': safe_float(latest.get('macd_signal')),
+        'macd_hist': safe_float(latest.get('macd_hist')),
+        'lst_diff': safe_float(latest.get('lst_diff')),
+        'supertrend': safe_float(latest.get('supertrend')),
+        'supertrend_trend': safe_int(latest.get('supertrend_trend')),
+        'stoch_rsi': safe_float(latest.get('stoch_rsi')),
+        'stoch_k': safe_float(latest.get('stoch_k')),
+        'stoch_d': safe_float(latest.get('stoch_d')),
+        'obv': safe_float(latest.get('obv')),
         'message': msg,
         'timeframe': TIMEFRAME,
         'order_id': order_id,
         'strategy': strategy
     }
-
 def store_signal(signal):
     global conn
     start_time = time.time()
@@ -1131,6 +1138,16 @@ Total Return Profit: {total_return_profit_db:.2f}
             logger.error(f"Error fetching trade counts after {elapsed:.3f}s: {e}")
             conn = None
             return f"Error fetching trade counts: {str(e)}"
+
+def safe_float(val, default=0.0):
+    """
+    Convert a value safely to float.
+    Returns default (0.0) if conversion fails.
+    """
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
 
 @app.route('/')
 def index():
