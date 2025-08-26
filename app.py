@@ -1162,32 +1162,55 @@ def index():
                     logger.error("Failed to reinitialize database for index route")
                     stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S") if stop_time else "N/A"
                     current_time = datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S")
-                    return render_template('index.html', signal=None, status=status, timeframe=TIMEFRAME,
-                                         trades=[], stop_time=stop_time_str, current_time=current_time)
+                    return render_template(
+                        'index.html',
+                        signal=None,
+                        status=status,
+                        timeframe=TIMEFRAME,
+                        trades=[],
+                        stop_time=stop_time_str,
+                        current_time=current_time
+                    )
+
             c = conn.cursor()
             c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT 16")
             rows = c.fetchall()
             columns = [col[0] for col in c.description]
             trades = [dict(zip(columns, row)) for row in rows]
-            # Ensure numeric fields are floats
-            numeric_fields = ['price', 'open_price', 'close_price', 'volume', 'percent_change', 'stop_loss',
-                             'take_profit', 'profit', 'total_profit', 'return_profit', 'total_return_profit',
-                             'ema1', 'ema2', 'rsi', 'k', 'd', 'j', 'diff', 'macd', 'macd_signal', 'macd_hist',
-                             'lst_diff', 'supertrend', 'stoch_rsi', 'stoch_k', 'stoch_d', 'obv']
+
+            # Ensure numeric fields are floats using safe_float
+            numeric_fields = [
+                'price', 'open_price', 'close_price', 'volume', 'percent_change', 'stop_loss',
+                'take_profit', 'profit', 'total_profit', 'return_profit', 'total_return_profit',
+                'ema1', 'ema2', 'rsi', 'k', 'd', 'j', 'diff', 'macd', 'macd_signal', 'macd_hist',
+                'lst_diff', 'supertrend', 'stoch_rsi', 'stoch_k', 'stoch_d', 'obv'
+            ]
+
             for trade in trades:
                 for field in numeric_fields:
-                    if field in trade and trade[field] is not None:
-                        try:
-                            trade[field] = float(trade[field])
-                        except (ValueError, TypeError):
-                            trade[field] = 0.0
+                    trade[field] = safe_float(trade.get(field))
+
             signal = trades[0] if trades else None
             stop_time_str = stop_time.strftime("%Y-%m-%d %H:%M:%S") if stop_time else "N/A"
             current_time = datetime.now(EU_TZ).strftime("%Y-%m-%d %H:%M:%S")
+
             elapsed = time.time() - start_time
-            logger.info(f"Rendering index.html: status={status}, timeframe={TIMEFRAME}, trades={len(trades)}, signal_exists={signal is not None}, signal_time={signal['time'] if signal else 'None'}, query_time={elapsed:.3f}s")
-            return render_template('index.html', signal=signal, status=status, timeframe=TIMEFRAME,
-                                 trades=trades, stop_time=stop_time_str, current_time=current_time)
+            logger.info(
+                f"Rendering index.html: status={status}, timeframe={TIMEFRAME}, trades={len(trades)}, "
+                f"signal_exists={signal is not None}, signal_time={signal['time'] if signal else 'None'}, "
+                f"query_time={elapsed:.3f}s"
+            )
+
+            return render_template(
+                'index.html',
+                signal=signal,
+                status=status,
+                timeframe=TIMEFRAME,
+                trades=trades,
+                stop_time=stop_time_str,
+                current_time=current_time
+            )
+
         except Exception as e:
             elapsed = time.time() - start_time
             logger.error(f"Error rendering index.html after {elapsed:.3f}s: {e}")
