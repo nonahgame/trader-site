@@ -452,6 +452,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
     macd = latest['macd'] if not pd.isna(latest['macd']) else 0.0  # DIF
     macd_signal = latest['macd_signal'] if not pd.isna(latest['macd_signal']) else 0.0  # DEA
     rsi = latest['rsi'] if not pd.isna(latest['rsi']) else 0.0
+    lst_diff = latest['lst_diff'] if not pd.isna(latest['lst_diff']) else 0.0
     stop_loss = None
     take_profit = None
     action = "hold"
@@ -479,20 +480,32 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         elif close_price >= take_profit:
             logger.info("Take-profit triggered.")
             action = "sell"
-        elif (close_price < open_price):# and kdj_j > kdj_d and macd > macd_signal and ema1 > ema2 and kdj_j > 58): #or (kdj_j < kdj_d and macd < macd_signal and close_price < open_price and kdj_j > 15): # or (close_price < open_price and kdj_j < kdj_d and macd > macd_signal):
-            logger.info(f"Sell condition met: close={close_price:.2f}, open={open_price:.2f}, kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, DIF={macd:.2f}, DEA={macd_signal:.2f}")
+        elif (macd < macd_signal and lst_diff < - 0.56):
+            logger.info("Sell-logic triggered.")
             action = "sell"
+        elif (lst_diff < - 7.00 and kdj_j > 75.00): # and kdj_j > kdj_d 
+            logger.info("Sell-logic triggered.")
+            action = "sell"
+        #elif (close_price < open_price):# and kdj_j > kdj_d and macd > macd_signal and ema1 > ema2 and kdj_j > 58): #or (kdj_j < kdj_d and macd < macd_signal and close_price < open_price and kdj_j > 15): # or (close_price < open_price and kdj_j < kdj_d and macd > macd_signal):
+            #logger.info(f"Sell condition met: close={close_price:.2f}, open={open_price:.2f}, kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, DIF={macd:.2f}, DEA={macd_signal:.2f}")
+            #action = "sell"
 
     if action == "hold" and position is None:
-        if (kdj_j < - 26.00 and ema1 < ema2 or kdj_j < kdj_d and macd < macd_signal and rsi < 19.00): # or (close_price > open_price and kdj_j > kdj_d or ema1 > ema2 and macd > macd_signal):
+        if (kdj_j < - 46.00 and ema1 < ema2 or kdj_j < kdj_d and macd < macd_signal and rsi < 19.00): # or (close_price > open_price and kdj_j > kdj_d or ema1 > ema2 and macd > macd_signal):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
-        elif (close_price > open_price and kdj_j > kdj_d and ema1 > ema2):# and macd > macd_signal and kdj_j < 115.00 and ema1 > ema2):
-            logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
+        elif (lst_diff > 7.00 and kdj_j < 10.00 and rsi < 27.00): # and kdj_j > kdj_d 
+            logger.info("Buy-logic triggered.")
             action = "buy"
-        elif (close_price > open_price and macd > macd_signal and ema1 > ema2):# and ema1 > ema2 and kdj_j < 114.00):
-            logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
+        elif (macd > macd_signal and ema1 > ema2 and lst_diff > 7.00): # and kdj_j > kdj_d 
+            logger.info("Buy-logic triggered.")
             action = "buy"
+        #elif (close_price > open_price and kdj_j > kdj_d and ema1 > ema2):# and macd > macd_signal and kdj_j < 115.00 and ema1 > ema2):
+          #  logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
+           # action = "buy"
+        #elif (close_price > open_price and macd > macd_signal and ema1 > ema2):# and ema1 > ema2 and kdj_j < 114.00):
+          #  logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
+          #  action = "buy"
 
     if action == "buy" and position is not None:
         logger.debug("Prevented consecutive buy order.")
