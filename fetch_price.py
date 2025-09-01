@@ -56,6 +56,16 @@ def technical_indicators(df):
         df['macd_hist'] = macd['MACDh_12_26_9']
         df['diff'] = df['Close'] - df['Open']
         df['lst_diff'] = df['ema1'].shift(1) - df['ema1']
+        
+        # --- MACD Hollow Logic ---
+        df['macd_hollow'] = 0.0  # default
+        for i in range(1, len(df)):
+            if df['macd_hist'].iloc[i] > 0 and df['macd_hist'].iloc[i] < df['macd_hist'].iloc[i-1]:
+                df.at[df.index[i], 'macd_hollow'] = 0.00   # hollow up
+            elif df['macd_hist'].iloc[i] < 0 and df['macd_hist'].iloc[i] > df['macd_hist'].iloc[i-1]:
+                df.at[df.index[i], 'macd_hollow'] = -0.00  # hollow down
+            else:
+                df.at[df.index[i], 'macd_hollow'] = df['macd_hist'].iloc[i]
 
         st_length = 10
         st_multiplier = 3.0
