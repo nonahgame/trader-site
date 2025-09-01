@@ -250,21 +250,27 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         elif close_price >= take_profit:
             logger.info("Take-profit triggered.")
             action = "sell"
-        elif (macd < macd_signal and lst_diff < -0.56):
+        elif (macd < macd_signal and close_price < open_price):
             logger.info("Sell-logic triggered.")
             action = "sell"
         elif (lst_diff < -7.00 and kdj_j > 75.00):
             logger.info("Sell-logic triggered.")
             action = "sell"
+        elif (lst_diff >  0.01 and kdj_j > 70.00 and rsi < 57.00):
+            logger.info("Sell-logic triggered.")
+            action = "sell"
 
     if action == "hold" and position is None:
-        if (kdj_j < -46.00 and ema1 < ema2 or kdj_j < kdj_d and macd < macd_signal and rsi < 19.00):
+        if (kdj_j < - 46.00 and ema1 < ema2 or kdj_j < kdj_d and macd < macd_signal and rsi < 19.00):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
         elif (lst_diff > 7.00 and kdj_j < 10.00 and rsi < 27.00):
             logger.info("Buy-logic triggered.")
             action = "buy"
-        elif (macd > macd_signal and ema1 > ema2 and lst_diff > 7.00):
+        elif (macd > macd_signal and ema1 > ema2 and lst_diff > 7.00 and rsi < 27.00):
+            logger.info("Buy-logic triggered.")
+            action = "buy"
+        elif (lst_diff < - 0.01 and kdj_j < 40.00 and rsi < 47.00):
             logger.info("Buy-logic triggered.")
             action = "buy"
 
