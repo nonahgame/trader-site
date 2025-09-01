@@ -1,7 +1,7 @@
-# 1st update 
+# 2nd update 
 # app.py
 from flask_setup import (
-    app, bot_thread, conn, STOP_AFTER_SECONDS, EU_TZ, db_path, logger, setup_database,
+    app, conn, STOP_AFTER_SECONDS, EU_TZ, db_path, logger, setup_database,
     upload_to_github
 )
 from flask_routes import get_performance, get_trade_counts
@@ -9,21 +9,22 @@ from trade_bot import trading_bot
 import threading
 import requests
 import time
-import asyncio
 import atexit
 import os
 
 def keep_alive():
+    """Send periodic keep-alive pings to prevent server timeout."""
     while True:
         try:
             requests.get('https://www.google.com')
             logger.debug("Keep-alive ping sent")
-            time.sleep(300)
+            time.sleep(300)  # Ping every 5 minutes
         except Exception as e:
             logger.error(f"Keep-alive error: {e}")
-            time.sleep(60)
+            time.sleep(60)  # Retry after 1 minute on error
 
 def cleanup():
+    """Close database connection and upload to GitHub on exit."""
     global conn
     if conn:
         conn.close()
@@ -33,18 +34,15 @@ def cleanup():
 
 atexit.register(cleanup)
 
-async def main():
-    pass
-
 if __name__ == "__main__":
     logger.info("Initializing database in main thread")
     if not setup_database():
-        logger.error("Failed to initialize database in main thread. Flask routes may fail.")
+        logger.error("Failed to initialize database in main thread. Exiting.")
+        exit(1)
 
-    if bot_thread is None or not bot_thread.is_alive():
-        bot_thread = threading.Thread(target=trading_bot, daemon=True)
-        bot_thread.start()
-        logger.info("Trading bot started automatically")
+    bot_thread = threading.Thread(target=trading_bot, daemon=True)
+    bot_thread.start()
+    logger.info("Trading bot thread started")
 
     keep_alive_thread = threading.Thread(target=keep_alive, daemon=True)
     keep_alive_thread.start()
@@ -52,5 +50,4 @@ if __name__ == "__main__":
 
     port = int(os.getenv("PORT", 4040))
     logger.info(f"Starting Flask server on port {port}")
-    asyncio.run(main())
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
