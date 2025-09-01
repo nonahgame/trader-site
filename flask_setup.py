@@ -1,5 +1,5 @@
-# 4th updates 
 # flask_setup.py
+
 import os
 import sqlite3
 import logging
@@ -51,6 +51,9 @@ GITHUB_REPO = os.getenv("GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH")
 EU_TZ = pytz.timezone("Europe/Amsterdam")
 db_path = '/opt/pcn/trader-site/rr_bot.bd'
+
+# ADDED: Fix for ImportError in fetch_price.py
+last_valid_price = None  
 
 # Initialize logger
 logger = logging.getLogger('flask_setup')
