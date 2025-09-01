@@ -1,4 +1,4 @@
-# 3rd update 
+# 4th updates 
 # flask_setup.py
 import os
 import sqlite3
@@ -11,8 +11,12 @@ import pandas as pd
 from dotenv import load_dotenv
 import requests
 import time
-import threading  # Added import for threading module
+import threading
 import base64
+from flask import Flask  # Added Flask import
+
+# Initialize Flask app
+app = Flask(__name__)
 
 # Load environment variables
 load_dotenv()
