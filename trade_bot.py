@@ -1,17 +1,16 @@
+# 1st update 
 # trade_bot.py
 from flask_setup import (
     bot_active, position, buy_price, total_profit, pause_duration, pause_start, conn,
     stop_time, BOT_TOKEN, CHAT_ID, SYMBOL, TIMEFRAME, TIMEFRAMES, AMOUNTS, EU_TZ,
-    bot_lock, exchange, logger
+    bot_lock, exchange, logger, upload_to_github
 )
 from telegram import Bot
 import telegram
 from fetch_price import get_simulated_price
 from technical_indicators import add_technical_indicators
-from ai_decision import ai_decision
+from database_utils import ai_decision, create_signal, store_signal, handle_second_strategy
 from telegram_message import send_telegram_message
-from database_utils import store_signal, create_signal
-from github_utils import upload_to_github
 import pandas as pd
 import time
 from datetime import datetime, timedelta
