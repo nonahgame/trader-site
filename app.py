@@ -1,4 +1,4 @@
-# 2nd update 
+# 3rd update 
 # app.py
 from flask_setup import (
     app, conn, STOP_AFTER_SECONDS, EU_TZ, db_path, logger, setup_database,
