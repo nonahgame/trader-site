@@ -1,11 +1,11 @@
+# 1st update 
 # app.py
 from flask_setup import (
-    app, bot_thread, conn, STOP_AFTER_SECONDS, EU_TZ, db_path, logger
+    app, bot_thread, conn, STOP_AFTER_SECONDS, EU_TZ, db_path, logger, setup_database,
+    upload_to_github
 )
 from flask_routes import get_performance, get_trade_counts
 from trade_bot import trading_bot
-from database_utils import setup_database
-from github_utils import upload_to_github
 import threading
 import requests
 import time
