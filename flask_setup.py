@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 # Try to import dotenv, with fallback if not installed
 try:
     from dotenv import load_dotenv
-    load load_dotenv()
+    load_dotenv()
 
     logger.debug("Loaded environment variables from .env file")
 except ImportError:
