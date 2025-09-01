@@ -1,4 +1,4 @@
-# 2nd update 
+# 3rd update 
 # trade_bot.py
 from flask_setup import (
     bot_active, position, buy_price, total_profit, pause_duration, pause_start, conn,
@@ -6,8 +6,8 @@ from flask_setup import (
     bot_lock, exchange, logger, upload_to_github
 )
 from telegram import Bot
-import telegram
-from fetch_price import get_simulated_price, technical_indicators  # Updated import
+import telegram.error  # Updated import for proper exception handling
+from fetch_price import get_simulated_price, technical_indicators
 from database_utils import ai_decision, create_signal, store_signal, handle_second_strategy
 from telegram_message import send_telegram_message
 import pandas as pd
@@ -70,8 +70,8 @@ def trading_bot():
     except telegram.error.InvalidToken:
         logger.warning("Invalid Telegram bot token. Telegram functionality disabled.")
         bot = None
-    except telegram.error.ChatNotFound:
-        logger.warning(f"Chat not found for chat_id: {CHAT_ID}. Telegram functionality disabled.")
+    except telegram.error.BadRequest as e:
+        logger.warning(f"Bad request error, possibly invalid chat_id: {CHAT_ID}. Telegram functionality disabled. Error: {e}")
         bot = None
     except Exception as e:
         logger.error(f"Error initializing Telegram bot: {e}")
@@ -133,7 +133,7 @@ def trading_bot():
             df.set_index('timestamp', inplace=True)
             df['High'] = df['High'].fillna(df['Close'])
             df['Low'] = df['Low'].fillna(df['Close'])
-            df = technical_indicators(df)  # Updated function call
+            df = technical_indicators(df)
             logger.info(f"Initial df shape: {df.shape}")
             break
         except Exception as e:
@@ -296,8 +296,8 @@ def trading_bot():
                 except telegram.error.InvalidToken:
                     logger.warning("Invalid Telegram bot token. Skipping Telegram updates.")
                     bot = None
-                except telegram.error.ChatNotFound:
-                    logger.warning(f"Chat not found for chat_id: {CHAT_ID}. Skipping Telegram updates.")
+                except telegram.error.BadRequest as e:
+                    logger.warning(f"Bad request error, possibly invalid chat_id: {CHAT_ID}. Skipping Telegram updates. Error: {e}")
                     bot = None
                 except Exception as e:
                     logger.error(f"Error processing Telegram updates: {e}")
@@ -311,7 +311,7 @@ def trading_bot():
                 'diff': [latest_data['diff']]
             }, index=[pd.Timestamp.now(tz=EU_TZ)])
             df = pd.concat([df, new_row]).tail(100)
-            df = technical_indicators(df)  # Updated function call
+            df = technical_indicators(df)
 
             prev_close = df['Close'].iloc[-2] if len(df) >= 2 else df['Close'].iloc[-1]
             percent_change = ((current_price - prev_close) / prev_close * 100) if prev_close != 0 else 0.0
