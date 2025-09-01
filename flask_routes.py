@@ -1,3 +1,4 @@
+# 1st update 
 # flask_routes.py
 from flask import render_template, jsonify
 from flask_setup import app, conn, bot_active, stop_time, EU_TZ, db_lock, TIMEFRAME, logger, setup_database
