@@ -1,6 +1,5 @@
-# 1st update 
 # fetch_price.py
-from flask_setup import SYMBOL, TIMEFRAME, exchange, logger, last_valid_price
+from flask_setup import SYMBOL, TIMEFRAME, exchange, logger, last_valid_price, EU_TZ  # FIXED: added EU_TZ
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
@@ -16,7 +15,7 @@ def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, r
                 time.sleep(delay)
                 continue
             data = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
-            data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms').dt.tz_localize('UTC').dt.tz_convert(EU_TZ)
+            data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms').dt.tz_localize('UTC').dt.tz_convert(EU_TZ)  # FIXED: EU_TZ now imported
             data['diff'] = data['Close'] - data['Open']
             non_zero_diff = data[abs(data['diff']) > 0]
             selected_data = non_zero_diff.iloc[-1] if not non_zero_diff.empty else data.iloc[-1]
