@@ -1,3 +1,4 @@
+# 1st update 
 # fetch_price.py
 from flask_setup import SYMBOL, TIMEFRAME, exchange, logger, last_valid_price
 import pandas as pd
@@ -34,7 +35,7 @@ def get_simulated_price(symbol=SYMBOL, exchange=exchange, timeframe=TIMEFRAME, r
         return last_valid_price
     return pd.Series({'Open': np.nan, 'Close': np.nan, 'High': np.nan, 'Low': np.nan, 'Volume': np.nan, 'diff': np.nan})
 
-def add_technical_indicators(df):
+def technical_indicators(df):
     start_time = time.time()
     try:
         df = df.copy()
