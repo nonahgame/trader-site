@@ -1,4 +1,4 @@
-# 2nd update 
+# 3rd update 
 # database_utils.py
 from flask_setup import (
     conn, db_lock, db_path, logger, EU_TZ, SYMBOL, TIMEFRAME, STOP_LOSS_PERCENT,
@@ -7,8 +7,8 @@ from flask_setup import (
 )
 import pandas as pd
 import numpy as np
-import time  # Added import for time module
-from datetime import datetime  # Added import for datetime
+import time
+from datetime import datetime
 
 def create_signal(action, current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, msg, order_id, strategy):
     def safe_float(val, default=0.0):
@@ -94,10 +94,18 @@ def store_signal(signal):
             conn.commit()
             elapsed = time.time() - start_time
             logger.debug(f"Signal stored successfully: action={signal['action']}, strategy={signal['strategy']}, time={signal['time']}, order_id={signal['order_id']}, db_write_time={elapsed:.3f}s")
+            # Upload to GitHub to ensure database update
+            upload_to_github(db_path, 'rr_bot.bd')
         except Exception as e:
             elapsed = time.time() - start_time
             logger.error(f"Error storing signal after {elapsed:.3f}s: {e}")
             conn = None
+            # Force database recreation on error
+            from flask_setup import setup_database
+            if not setup_database():
+                logger.error("Failed to reinitialize database after error")
+            else:
+                logger.info("Database recreated due to error in storing signal")
 
 def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAKE_PROFIT_PERCENT, position=None, buy_price=None):
     if df.empty or len(df) < 1:
