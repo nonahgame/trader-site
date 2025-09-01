@@ -1,124 +1,12 @@
+# 1st update 
 # database_utils.py
 from flask_setup import (
     conn, db_lock, db_path, logger, EU_TZ, SYMBOL, TIMEFRAME, STOP_LOSS_PERCENT,
     TAKE_PROFIT_PERCENT, exchange, AMOUNTS, tracking_enabled, last_sell_profit,
-    tracking_has_buy, tracking_buy_price, total_return_profit
+    tracking_has_buy, tracking_buy_price, total_return_profit, upload_to_github
 )
-import sqlite3
-from datetime import datetime
 import pandas as pd
 import numpy as np
-
-def setup_database():
-    global conn
-    with db_lock:
-        for attempt in range(3):
-            try:
-                logger.info(f"Database setup attempt {attempt + 1}/3")
-                if not os.path.exists(db_path):
-                    logger.info(f"Database file {db_path} does not exist. Creating new database.")
-                    conn = sqlite3.connect(db_path, check_same_thread=False)
-                    logger.info(f"Created new database file at {db_path}")
-                else:
-                    try:
-                        test_conn = sqlite3.connect(db_path, check_same_thread=False)
-                        c = test_conn.cursor()
-                        c.execute("SELECT name FROM sqlite_master WHERE type='table';")
-                        logger.info(f"Existing database found at {db_path}, tables: {c.fetchall()}")
-                        test_conn.close()
-                    except sqlite3.DatabaseError as e:
-                        logger.error(f"Existing database at {db_path} is corrupted: {e}")
-                        os.remove(db_path)
-                        logger.info(f"Removed corrupted database file at {db_path}")
-                        conn = sqlite3.connect(db_path, check_same_thread=False)
-                        logger.info(f"Created new database file at {db_path} after corruption")
-
-                logger.info(f"Attempting to download database from GitHub: {GITHUB_API_URL}")
-                if download_from_github('rr_bot.bd', db_path):
-                    logger.info(f"Downloaded database from GitHub to {db_path}")
-                    try:
-                        test_conn = sqlite3.connect(db_path, check_same_thread=False)
-                        c = test_conn.cursor()
-                        c.execute("SELECT name FROM sqlite_master WHERE type='table';")
-                        tables = c.fetchall()
-                        logger.info(f"Downloaded database is valid, tables: {tables}")
-                        test_conn.close()
-                    except sqlite3.DatabaseError as e:
-                        logger.error(f"Downloaded database is corrupted: {e}")
-                        os.remove(db_path)
-                        logger.info(f"Removed invalid downloaded database file at {db_path}")
-                        conn = sqlite3.connect(db_path, check_same_thread=False)
-                        logger.info(f"Created new database file at {db_path} after failed download")
-
-                if conn is None:
-                    conn = sqlite3.connect(db_path, check_same_thread=False)
-                logger.info(f"Connected to database at {db_path}")
-
-                c = conn.cursor()
-                c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trades';")
-                if not c.fetchone():
-                    c.execute('''
-                        CREATE TABLE trades (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            time TEXT,
-                            action TEXT,
-                            symbol TEXT,
-                            price REAL,
-                            open_price REAL,
-                            close_price REAL,
-                            volume REAL,
-                            percent_change REAL,
-                            stop_loss REAL,
-                            take_profit REAL,
-                            profit REAL,
-                            total_profit REAL,
-                            return_profit REAL,
-                            total_return_profit REAL,
-                            ema1 REAL,
-                            ema2 REAL,
-                            rsi REAL,
-                            k REAL,
-                            d REAL,
-                            j REAL,
-                            diff REAL,
-                            macd REAL,
-                            macd_signal REAL,
-                            macd_hist REAL,
-                            lst_diff REAL,
-                            supertrend REAL,
-                            supertrend_trend INTEGER,
-                            stoch_rsi REAL,
-                            stoch_k REAL,
-                            stoch_d REAL,
-                            obv REAL,
-                            message TEXT,
-                            timeframe TEXT,
-                            order_id TEXT,
-                            strategy TEXT
-                        )
-                    ''')
-                    logger.info("Created new trades table")
-                c.execute("PRAGMA table_info(trades);")
-                columns = [col[1] for col in c.fetchall()]
-                for col in ['return_profit', 'total_return_profit', 'diff', 'macd', 'macd_signal', 'macd_hist', 'lst_diff', 'message', 'timeframe', 'order_id', 'strategy']:
-                    if col not in columns:
-                        c.execute(f"ALTER TABLE trades ADD COLUMN {col} {'REAL' if col in ['return_profit', 'total_return_profit', 'diff', 'macd', 'macd_signal', 'macd_hist', 'lst_diff'] else 'TEXT'};")
-                        logger.info(f"Added column {col} to trades table")
-                conn.commit()
-                logger.info(f"Database initialized successfully at {db_path}, size: {os.path.getsize(db_path)} bytes")
-                upload_to_github(db_path, 'rr_bot.bd')
-                return True
-            except sqlite3.Error as e:
-                logger.error(f"SQLite error during database setup (attempt {attempt + 1}/3): {e}", exc_info=True)
-                conn = None
-                time.sleep(2)
-            except Exception as e:
-                logger.error(f"Unexpected error during database setup (attempt {attempt + 1}/3): {e}", exc_info=True)
-                conn = None
-                time.sleep(2)
-        logger.error("Failed to initialize database after 3 attempts")
-        conn = None
-        return False
 
 def create_signal(action, current_price, latest_data, df, profit, total_profit, return_profit, total_return_profit, msg, order_id, strategy):
     def safe_float(val, default=0.0):
@@ -175,6 +63,7 @@ def store_signal(signal):
         try:
             if conn is None:
                 logger.warning("Database connection is None. Attempting to reinitialize.")
+                from flask_setup import setup_database
                 if not setup_database():
                     logger.error("Failed to reinitialize database for signal storage")
                     return
@@ -250,27 +139,21 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         elif close_price >= take_profit:
             logger.info("Take-profit triggered.")
             action = "sell"
-        elif (macd < macd_signal and close_price < open_price):
+        elif (macd < macd_signal and lst_diff < -0.56):
             logger.info("Sell-logic triggered.")
             action = "sell"
         elif (lst_diff < -7.00 and kdj_j > 75.00):
             logger.info("Sell-logic triggered.")
             action = "sell"
-        elif (lst_diff >  0.01 and kdj_j > 70.00 and rsi < 57.00):
-            logger.info("Sell-logic triggered.")
-            action = "sell"
 
     if action == "hold" and position is None:
-        if (kdj_j < - 46.00 and ema1 < ema2 or kdj_j < kdj_d and macd < macd_signal and rsi < 19.00):
+        if (kdj_j < -46.00 and ema1 < ema2 or kdj_j < kdj_d and macd < macd_signal and rsi < 19.00):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
         elif (lst_diff > 7.00 and kdj_j < 10.00 and rsi < 27.00):
             logger.info("Buy-logic triggered.")
             action = "buy"
-        elif (macd > macd_signal and ema1 > ema2 and lst_diff > 7.00 and rsi < 27.00):
-            logger.info("Buy-logic triggered.")
-            action = "buy"
-        elif (lst_diff < - 0.01 and kdj_j < 40.00 and rsi < 47.00):
+        elif (macd > macd_signal and ema1 > ema2 and lst_diff > 7.00):
             logger.info("Buy-logic triggered.")
             action = "buy"
 
