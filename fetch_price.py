@@ -55,18 +55,18 @@ def technical_indicators(df):
         df['macd_signal'] = macd['MACDs_12_26_9']
         df['macd_hist'] = macd['MACDh_12_26_9']
         df['diff'] = df['Close'] - df['Open']
+        df['diff1e'] = df['ema1'] - df['ema2']
+        df['diff2m'] = df['macd'] - df['macd_signal']
+        df['diff3k'] = df['j'] - df['d']
         df['lst_diff'] = df['ema1'].shift(1) - df['ema1']
         
-        # --- MACD Hollow Logic ---
-        df['macd_hollow'] = 0.0  # default
-        for i in range(1, len(df)):
-            if df['macd_hist'].iloc[i] > 0 and df['macd_hist'].iloc[i] < df['macd_hist'].iloc[i-1]:
-                df.at[df.index[i], 'macd_hollow'] = 0.00   # hollow up
-            elif df['macd_hist'].iloc[i] < 0 and df['macd_hist'].iloc[i] > df['macd_hist'].iloc[i-1]:
-                df.at[df.index[i], 'macd_hollow'] = -0.00  # hollow down
-            else:
-                df.at[df.index[i], 'macd_hollow'] = df['macd_hist'].iloc[i]
+        # MACD hollow detection
+        df['macd_hollow'] = 0.0
 
+        # Compare with previous bar
+        df.loc[(df['macd_hist'] > 0) & (df['macd_hist'] < df['macd_hist'].shift(1)), 'macd_hollow'] = df['macd_hist']  # hollow above 0
+        df.loc[(df['macd_hist'] < 0) & (df['macd_hist'] > df['macd_hist'].shift(1)), 'macd_hollow'] = -df['macd_hist'] # hollow below 0
+        
         st_length = 10
         st_multiplier = 3.0
         high_low = df['High'] - df['Low']
