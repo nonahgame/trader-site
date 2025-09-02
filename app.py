@@ -506,7 +506,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         elif (lst_diff < - 0.01 and kdj_j < 40.00): # and ema1 > ema2):# and macd > macd_signal and kdj_j < 115.00 and ema1 > ema2):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
-        elif (close_price > ema1 or macd > macd_signal): # and ema1 > ema2):# and ema1 > ema2 and kdj_j < 114.00):
+        elif (close_price > ema1 and macd > macd_signal or macd > macd_signal and rsi < 45): # and ema1 > ema2):# and ema1 > ema2 and kdj_j < 114.00):
             logger.info(f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, close={close_price:.2f}, open={open_price:.2f}, ema1={ema1:.2f}, ema2={ema2:.2f}")
             action = "buy"
 
