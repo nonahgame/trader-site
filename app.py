@@ -489,22 +489,22 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
             )
             action = "sell"
 
-# BUY conditions (only when flat / no position)
-if action == "hold" and position is None:
-    if (kdj_j < kdj_d and kdj_j < 1.00 and (macd - macd_signal) < -0.01):
-        logger.info(
+    # BUY conditions (only when flat / no position)
+    if action == "hold" and position is None:
+        if (kdj_j < kdj_d and kdj_j < 1.00 and (macd - macd_signal) < -0.01):
+            logger.info(
             f"Buy triggered: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, "
             f"macd_hist={(macd - macd_signal):.2f}, close={close_price:.2f}"
-        )
-        action = "buy"
+            )
+            action = "buy"
 
-# Guards to prevent bad flips
-if action == "buy" and position is not None:
-    logger.debug("Prevented consecutive buy order.")
-    action = "hold"
-if action == "sell" and position is None:
-    logger.debug("Prevented sell order without open position.")
-    action = "hold"
+    # Guards to prevent bad flips
+    if action == "buy" and position is not None:
+        logger.debug("Prevented consecutive buy order.")
+        action = "hold"
+    if action == "sell" and position is None:
+        logger.debug("Prevented sell order without open position.")
+        action = "hold"
     # end 
 
     if action in ["buy", "sell"] and bot_active:
