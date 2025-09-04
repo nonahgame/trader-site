@@ -470,66 +470,41 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
     except Exception as e:
         logger.error(f"Error calculating quantity: {e}")
         return "hold", None, None, None
-    ## market logics
+    ## # --- Market Logic ---
+    # SELL conditions (only when in long position)
     if position == "long" and buy_price is not None:
         stop_loss = buy_price * (1 + stop_loss_percent / 100)
         take_profit = buy_price * (1 + take_profit_percent / 100)
+
         if close_price <= stop_loss:
             logger.info("Stop-loss triggered.")
             action = "sell"
         elif close_price >= take_profit:
             logger.info("Take-profit triggered.")
             action = "sell"
-        elif (macd < macd_signal and lst_diff < -0.56):
-            logger.info("Sell-logic triggered.")
-            action = "sell"
-        elif (lst_diff < -7.00 and kdj_j > 96.00):  # and kdj_j > kdj_d 
-            logger.info("Sell-logic triggered.")
-            action = "sell"
-        elif (lst_diff > 0.01 and rsi > 70.00):  
+        elif (kdj_j > kdj_d and kdj_j > 60.00 and (macd - macd_signal) > 1.00):
             logger.info(
-            f"Sell condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, "
-            f"close={close_price:.2f}, open={open_price:.2f}, "
-            f"ema1={ema1:.2f}, ema2={ema2:.2f}"
+            f"Sell triggered: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, "
+            f"macd_hist={(macd - macd_signal):.2f}, close={close_price:.2f}"
             )
             action = "sell"
-        # REMOVED overly broad sell condition:
-        # elif (close_price < ema1 and macd < macd_signal or macd < macd_signal and rsi > 35.00):
-        #     logger.info(f"Sell condition met: close={close_price:.2f}, ...")
-        #     action = "sell"
 
-    if action == "hold" and position is None:
-        if (kdj_j < -46.00 and ema1 < ema2 or kdj_j < kdj_d and macd < macd_signal and rsi < 19.00):  
-            logger.info(
-            f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, "
-            f"close={close_price:.2f}, open={open_price:.2f}, "
-            f"ema1={ema1:.2f}, ema2={ema2:.2f}"
-            )
-            action = "buy"
-        elif (lst_diff > 7.00 and kdj_j < 10.00 and rsi < 27.00):  
-            logger.info("Buy-logic triggered.")
-            action = "buy"
-        elif (macd > macd_signal and ema1 > ema2 and lst_diff > 7.00):  
-            logger.info("Buy-logic triggered.")
-            action = "buy"
-        elif (lst_diff < -0.01 and kdj_j < 4.00):  
-            logger.info(
-            f"Buy condition met: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, "
-            f"close={close_price:.2f}, open={open_price:.2f}, "
-            f"ema1={ema1:.2f}, ema2={ema2:.2f}"
-            )
-            action = "buy"
-        # REMOVED overly broad buy condition:
-        # elif (close_price > ema1 and macd > macd_signal or macd > macd_signal and rsi < 45):
-        #     logger.info(f"Buy condition met: close={close_price:.2f}, ...")
-        #     action = "buy"
+# BUY conditions (only when flat / no position)
+if action == "hold" and position is None:
+    if (kdj_j < kdj_d and kdj_j < 1.00 and (macd - macd_signal) < -0.01):
+        logger.info(
+            f"Buy triggered: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, "
+            f"macd_hist={(macd - macd_signal):.2f}, close={close_price:.2f}"
+        )
+        action = "buy"
 
-    if action == "buy" and position is not None:
-        logger.debug("Prevented consecutive buy order.")
-        action = "hold"
-    if action == "sell" and position is None:
-        logger.debug("Prevented sell order without open position.")
-        action = "hold"
+# Guards to prevent bad flips
+if action == "buy" and position is not None:
+    logger.debug("Prevented consecutive buy order.")
+    action = "hold"
+if action == "sell" and position is None:
+    logger.debug("Prevented sell order without open position.")
+    action = "hold"
     # end 
 
     if action in ["buy", "sell"] and bot_active:
