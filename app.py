@@ -483,7 +483,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         elif close_price >= take_profit:
             logger.info("Take-profit triggered.")
             action = "sell"
-        elif (kdj_j > kdj_d and kdj_j > 65.00 and macd_hist > 1.00):
+        elif (kdj_j > kdj_d and kdj_j > 65.00 and ema1 > ema2 rsi > 60.00): # and macd_hist > 1.00
             logger.info(
             f"Sell triggered: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, "
             f"macd_hist={(macd - macd_signal):.2f}, close={close_price:.2f}"
@@ -492,7 +492,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
 
     # BUY conditions (only when flat / no position)
     if action == "hold" and position is None:
-        if (kdj_j < kdj_d and kdj_j < - 2.00 and macd_hist < - 0.01):
+        if (kdj_j < kdj_d and kdj_j < - 5.00 and ema1 < ema2 and rsi < 19.00): # and macd_hist < - 0.01
             logger.info(
             f"Buy triggered: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, "
             f"macd_hist={(macd - macd_signal):.2f}, close={close_price:.2f}"
