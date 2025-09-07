@@ -1,4 +1,4 @@
-# app.py sym pt 4000 & fd 2nd
+# app.py
 import os
 import pandas as pd
 import numpy as np
@@ -43,7 +43,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Try to import dotenv, with fallback if not installed
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -68,7 +67,7 @@ TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
 TIMEFRAMES = int(os.getenv("INTER_SECONDS", "INTER_SECONDS"))
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", "STOP_LOSS_PERCENT"))
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", "TAKE_PROFIT_PERCENT"))
-STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 0))  # Set to 0 to disable auto-stop
+STOP_AFTER_SECONDS = float(os.getenv("STOP_AFTER_SECONDS", 0))
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
@@ -111,7 +110,7 @@ tracking_has_buy = False
 tracking_buy_price = None
 total_return_profit = 0
 start_time = datetime.now(EU_TZ)
-stop_time = None  # Disable stop time if STOP_AFTER_SECONDS is 0
+stop_time = None
 last_valid_price = None
 
 # GitHub database functions
@@ -200,10 +199,10 @@ def periodic_db_backup():
                     upload_to_github(db_path, 'rnn_bot.db')
                 else:
                     logger.warning("Database file or connection not available for periodic backup")
-            time.sleep(300)  # Sleep for 5 minutes (300 seconds)
+            time.sleep(300)
         except Exception as e:
             logger.error(f"Error during periodic database backup: {e}")
-            time.sleep(60)  # Retry after 1 minute if error occurs
+            time.sleep(60)
 
 # SQLite database setup with enhanced error handling and column creation
 def setup_database(first_attempt=False):
@@ -213,13 +212,11 @@ def setup_database(first_attempt=False):
             try:
                 logger.info(f"Database setup attempt {attempt + 1}/3")
                 
-                # Check if database file exists, create it if it doesn't
                 if not os.path.exists(db_path):
                     logger.info(f"Database file {db_path} does not exist. Creating new database.")
                     conn = sqlite3.connect(db_path, check_same_thread=False)
                     logger.info(f"Created new database file at {db_path}")
                 else:
-                    # Check if existing database is valid
                     try:
                         test_conn = sqlite3.connect(db_path, check_same_thread=False)
                         c = test_conn.cursor()
@@ -233,7 +230,6 @@ def setup_database(first_attempt=False):
                         conn = sqlite3.connect(db_path, check_same_thread=False)
                         logger.info(f"Created new database file at {db_path} after corruption")
 
-                # Attempt to download from GitHub if not first attempt
                 if not first_attempt:
                     logger.info(f"Attempting to download database from GitHub: {GITHUB_API_URL}")
                     if download_from_github('rnn_bot.db', db_path):
@@ -252,13 +248,11 @@ def setup_database(first_attempt=False):
                             conn = sqlite3.connect(db_path, check_same_thread=False)
                             logger.info(f"Created new database file at {db_path} after failed download")
 
-                # Connect to the database
                 if conn is None:
                     conn = sqlite3.connect(db_path, check_same_thread=False)
                 logger.info(f"Connected to database at {db_path}")
 
                 c = conn.cursor()
-                # Check if trades table exists
                 c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trades';")
                 if not c.fetchone():
                     logger.info("Trades table does not exist. Creating new trades table.")
@@ -286,9 +280,13 @@ def setup_database(first_attempt=False):
                             d REAL,
                             j REAL,
                             diff REAL,
+                            diff1e REAL,
+                            diff2m REAL,
+                            diff3k REAL,
                             macd REAL,
                             macd_signal REAL,
                             macd_hist REAL,
+                            macd_hollow REAL,
                             lst_diff REAL,
                             supertrend REAL,
                             supertrend_trend INTEGER,
@@ -305,7 +303,6 @@ def setup_database(first_attempt=False):
                     logger.info("Created new trades table")
                     conn.commit()
 
-                # Check and add missing columns
                 c.execute("PRAGMA table_info(trades);")
                 existing_columns = {col[1] for col in c.fetchall()}
                 required_columns = {
@@ -330,9 +327,13 @@ def setup_database(first_attempt=False):
                     'd': 'REAL',
                     'j': 'REAL',
                     'diff': 'REAL',
+                    'diff1e': 'REAL',
+                    'diff2m': 'REAL',
+                    'diff3k': 'REAL',
                     'macd': 'REAL',
                     'macd_signal': 'REAL',
                     'macd_hist': 'REAL',
+                    'macd_hollow': 'REAL',
                     'lst_diff': 'REAL',
                     'supertrend': 'REAL',
                     'supertrend_trend': 'INTEGER',
@@ -370,7 +371,6 @@ def setup_database(first_attempt=False):
                     conn = None
                 time.sleep(2)
 
-        # After 3 failed attempts, force create a new database
         logger.error("Failed to initialize database after 3 attempts. Forcing creation of new database.")
         try:
             if os.path.exists(db_path):
@@ -402,9 +402,13 @@ def setup_database(first_attempt=False):
                     d REAL,
                     j REAL,
                     diff REAL,
+                    diff1e REAL,
+                    diff2m REAL,
+                    diff3k REAL,
                     macd REAL,
                     macd_signal REAL,
                     macd_hist REAL,
+                    macd_hollow REAL,
                     lst_diff REAL,
                     supertrend REAL,
                     supertrend_trend INTEGER,
@@ -488,7 +492,13 @@ def add_technical_indicators(df):
         df['macd_signal'] = macd['MACDs_12_26_9']
         df['macd_hist'] = macd['MACDh_12_26_9']
         df['diff'] = df['Close'] - df['Open']
+        df['diff1e'] = df['ema1'] - df['ema2']
+        df['diff2m'] = df['macd'] - df['macd_signal']
+        df['diff3k'] = df['j'] - df['d']
         df['lst_diff'] = df['ema1'].shift(1) - df['ema1']
+        df['macd_hollow'] = 0.0
+        df.loc[(df['macd_hist'] > 0) & (df['macd_hist'] < df['macd_hist'].shift(1)), 'macd_hollow'] = df['macd_hist']
+        df.loc[(df['macd_hist'] < 0) & (df['macd_hist'] > df['macd_hist'].shift(1)), 'macd_hollow'] = -df['macd_hist']
 
         st_length = 10
         st_multiplier = 3.0
@@ -539,7 +549,7 @@ def add_technical_indicators(df):
         df['obv'] = (direction * df['Volume']).fillna(0).cumsum()
 
         elapsed = time.time() - start_time
-        logger.debug(f"Technical indicators calculated in {elapsed:.3f}s: {df.iloc[-1][['ema1', 'ema2', 'rsi', 'k', 'd', 'j', 'macd', 'macd_signal', 'macd_hist', 'diff', 'lst_diff', 'supertrend', 'supertrend_trend', 'supertrend_signal', 'stoch_k', 'stoch_d', 'obv']].to_dict()}")
+        logger.debug(f"Technical indicators calculated in {elapsed:.3f}s: {df.iloc[-1][['ema1', 'ema2', 'rsi', 'k', 'd', 'j', 'macd', 'macd_signal', 'macd_hist', 'diff', 'diff1e', 'diff2m', 'diff3k', 'macd_hollow', 'lst_diff', 'supertrend', 'supertrend_trend', 'stoch_rsi', 'stoch_k', 'stoch_d', 'obv']].to_dict()}")
         return df
     except Exception as e:
         elapsed = time.time() - start_time
@@ -565,7 +575,9 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
     macd_hist = latest['macd_hist'] if not pd.isna(latest['macd_hist']) else 0.0
     rsi = latest['rsi'] if not pd.isna(latest['rsi']) else 0.0
     lst_diff = latest['lst_diff'] if not pd.isna(latest['lst_diff']) else 0.0
-    supertrend_trend = latest['supertrend_trend'] if not pd.isna(latest['supertrend_trend']) else 0  # Added: Supertrend trend
+    diff3k = latest['diff3k'] if not pd.isna(latest['diff3k']) else 0.0
+    macd_hollow = latest['macd_hollow'] if not pd.isna(latest['macd_hollow']) else 0.0
+    supertrend_trend = latest['supertrend_trend'] if not pd.isna(latest['supertrend_trend']) else 0
     stop_loss = None
     take_profit = None
     action = "hold"
@@ -592,26 +604,40 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         elif close_price >= take_profit:
             logger.info("Take-profit triggered.")
             action = "sell"
-        elif (supertrend_trend == 1 and kdj_j > kdj_d and kdj_j > 112.00):  # Modified: Sell on Supertrend Uptrend
+        elif (lst_diff < - 0.00 and macd_hollow < 0.01 and diff3k < - 0.00 and rsi > 50.00):
+            logger.info(f"Sell triggered by macd_hollow: macd_hollow=Up, close={close_price:.2f}")
+            action = "sell"
+        elif (supertrend_trend == 1.00 and kdj_j > 115.00 and rsi > 60.00):
             logger.info(f"Sell triggered by Supertrend: supertrend_trend=Up, close={close_price:.2f}")
             action = "sell"
-        elif (kdj_j > kdj_d and kdj_j > 100.00 and ema1 > ema2 and rsi > 60.00):  # Existing KDJ/MACD sell condition and macd_hist > 1.00
+        elif (kdj_j > kdj_d and kdj_j > 100.00 and ema1 > ema2 and rsi > 60.00):
             logger.info(
                 f"Sell triggered by KDJ/MACD: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, "
                 f"macd_hist={(macd - macd_signal):.2f}, close={close_price:.2f}"
             )
             action = "sell"
 
+    #if action == "hold" and position is None:
+        #if (supertrend_trend == 0 and kdj_j < kdj_d and kdj_j < -6.00 and rsi < 30.00):
+            #logger.info(
+             #   f"Buy triggered by Supertrend: supertrend_trend=Down, close={close_price:.2f}"
+            #)
+            #action = "buy"
     if action == "hold" and position is None:
-        if (supertrend_trend == 0 and kdj_j < kdj_d and kdj_j < - 6.00):  # Modified: Buy on Supertrend Downtrend
+        if (lst_diff > 0.00 and macd_hollow > 0.00 and diff3k > 0.00 and rsi < 45.00):
             logger.info(
-                f"Buy triggered by Supertrend: supertrend_trend=Down, close={close_price:.2f}"
+                f"Buy triggered by macd_hollow: macd_hollow=Down, close={close_price:.2f}"
             )
             action = "buy"
-        elif (kdj_j < kdj_d and kdj_j < -5.00 and ema1 < ema2 and rsi < 19.00):  # Existing KDJ/MACD buy condition  and macd_hist < -0.01
+        elif (kdj_j < kdj_d and kdj_j < -5.00 and ema1 < ema2 and rsi < 19.00):
             logger.info(
                 f"Buy triggered by KDJ/MACD: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, "
                 f"macd_hist={(macd - macd_signal):.2f}, close={close_price:.2f}"
+            )
+            action = "buy"
+        elif (supertrend_trend == 0.00 and kdj_j < -6.00 and rsi < 17.00):
+            logger.info(
+                f"Buy triggered by Supertrend: supertrend_trend=Down, close={close_price:.2f}"
             )
             action = "buy"
 
@@ -698,12 +724,16 @@ EMA1 (12): {signal['ema1']:.2f}
 EMA2 (26): {signal['ema2']:.2f}
 RSI (14): {signal['rsi']:.2f}
 Diff: {diff_color} {signal['diff']:.2f}
+Diff1e (EMA1-EMA2): {signal['diff1e']:.2f}
+Diff2m (MACD-MACD Signal): {signal['diff2m']:.2f}
+Diff3k (J-D): {signal['diff3k']:.2f}
 KDJ K: {signal['k']:.2f}
 KDJ D: {signal['d']:.2f}
 KDJ J: {signal['j']:.2f}
 MACD (DIF): {signal['macd']:.2f}
 MACD Signal (DEA): {signal['macd_signal']:.2f}
 MACD Hist: {signal['macd_hist']:.2f}
+MACD Hollow: {signal['macd_hollow']:.2f}
 Lst Diff: {signal['lst_diff']:.2f}
 Supertrend: {signal['supertrend']:.2f}
 Supertrend Trend: {'Up' if signal['supertrend_trend'] else 'Down'}
@@ -769,9 +799,13 @@ def trading_bot():
             'd': 0.0,
             'j': 0.0,
             'diff': 0.0,
+            'diff1e': 0.0,
+            'diff2m': 0.0,
+            'diff3k': 0.0,
             'macd': 0.0,
             'macd_signal': 0.0,
             'macd_hist': 0.0,
+            'macd_hollow': 0.0,
             'lst_diff': 0.0,
             'supertrend': 0.0,
             'supertrend_trend': 0,
@@ -821,9 +855,13 @@ def trading_bot():
         'd': 0.0,
         'j': 0.0,
         'diff': 0.0,
+        'diff1e': 0.0,
+        'diff2m': 0.0,
+        'diff3k': 0.0,
         'macd': 0.0,
         'macd_signal': 0.0,
         'macd_hist': 0.0,
+        'macd_hollow': 0.0,
         'lst_diff': 0.0,
         'supertrend': 0.0,
         'supertrend_trend': 0,
@@ -1114,9 +1152,13 @@ def create_signal(action, current_price, latest_data, df, profit, total_profit, 
         'd': safe_float(latest.get('d')),
         'j': safe_float(latest.get('j')),
         'diff': safe_float(latest.get('diff')),
+        'diff1e': safe_float(latest.get('diff1e')),
+        'diff2m': safe_float(latest.get('diff2m')),
+        'diff3k': safe_float(latest.get('diff3k')),
         'macd': safe_float(latest.get('macd')),
         'macd_signal': safe_float(latest.get('macd_signal')),
         'macd_hist': safe_float(latest.get('macd_hist')),
+        'macd_hollow': safe_float(latest.get('macd_hollow')),
         'lst_diff': safe_float(latest.get('lst_diff')),
         'supertrend': safe_float(latest.get('supertrend')),
         'supertrend_trend': safe_int(latest.get('supertrend_trend')),
@@ -1147,9 +1189,11 @@ def store_signal(signal):
                         time, action, symbol, price, open_price, close_price, volume,
                         percent_change, stop_loss, take_profit, profit, total_profit,
                         return_profit, total_return_profit, ema1, ema2, rsi, k, d, j, diff,
-                        macd, macd_signal, macd_hist, lst_diff, supertrend, supertrend_trend,
-                        stoch_rsi, stoch_k, stoch_d, obv, message, timeframe, order_id, strategy
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        diff1e, diff2m, diff3k, macd, macd_signal, macd_hist, macd_hollow,
+                        lst_diff, supertrend, supertrend_trend, stoch_rsi, stoch_k, stoch_d,
+                        obv, message, timeframe, order_id, strategy
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     signal['time'], signal['action'], signal['symbol'], signal['price'],
                     signal['open_price'], signal['close_price'], signal['volume'],
@@ -1158,8 +1202,9 @@ def store_signal(signal):
                     signal['return_profit'], signal['total_return_profit'],
                     signal['ema1'], signal['ema2'], signal['rsi'],
                     signal['k'], signal['d'], signal['j'], signal['diff'],
-                    signal['macd'], signal['macd_signal'], signal['macd_hist'], signal['lst_diff'],
-                    signal['supertrend'], signal['supertrend_trend'],
+                    signal['diff1e'], signal['diff2m'], signal['diff3k'],
+                    signal['macd'], signal['macd_signal'], signal['macd_hist'], signal['macd_hollow'],
+                    signal['lst_diff'], signal['supertrend'], signal['supertrend_trend'],
                     signal['stoch_rsi'], signal['stoch_k'], signal['stoch_d'], signal['obv'],
                     signal['message'], signal['timeframe'], signal['order_id'], signal['strategy']
                 ))
@@ -1188,7 +1233,6 @@ def store_signal(signal):
                     conn = None
                 time.sleep(2)
 
-        # After 3 failed attempts, force create a new database
         logger.error("Failed to store signal after 3 attempts. Forcing creation of new database.")
         if setup_database(first_attempt=True):
             try:
@@ -1198,9 +1242,11 @@ def store_signal(signal):
                         time, action, symbol, price, open_price, close_price, volume,
                         percent_change, stop_loss, take_profit, profit, total_profit,
                         return_profit, total_return_profit, ema1, ema2, rsi, k, d, j, diff,
-                        macd, macd_signal, macd_hist, lst_diff, supertrend, supertrend_trend,
-                        stoch_rsi, stoch_k, stoch_d, obv, message, timeframe, order_id, strategy
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        diff1e, diff2m, diff3k, macd, macd_signal, macd_hist, macd_hollow,
+                        lst_diff, supertrend, supertrend_trend, stoch_rsi, stoch_k, stoch_d,
+                        obv, message, timeframe, order_id, strategy
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     signal['time'], signal['action'], signal['symbol'], signal['price'],
                     signal['open_price'], signal['close_price'], signal['volume'],
@@ -1209,8 +1255,9 @@ def store_signal(signal):
                     signal['return_profit'], signal['total_return_profit'],
                     signal['ema1'], signal['ema2'], signal['rsi'],
                     signal['k'], signal['d'], signal['j'], signal['diff'],
-                    signal['macd'], signal['macd_signal'], signal['macd_hist'], signal['lst_diff'],
-                    signal['supertrend'], signal['supertrend_trend'],
+                    signal['diff1e'], signal['diff2m'], signal['diff3k'],
+                    signal['macd'], signal['macd_signal'], signal['macd_hist'], signal['macd_hollow'],
+                    signal['lst_diff'], signal['supertrend'], signal['supertrend_trend'],
                     signal['stoch_rsi'], signal['stoch_k'], signal['stoch_d'], signal['obv'],
                     signal['message'], signal['timeframe'], signal['order_id'], signal['strategy']
                 ))
@@ -1352,8 +1399,9 @@ def index():
             numeric_fields = [
                 'price', 'open_price', 'close_price', 'volume', 'percent_change', 'stop_loss',
                 'take_profit', 'profit', 'total_profit', 'return_profit', 'total_return_profit',
-                'ema1', 'ema2', 'rsi', 'k', 'd', 'j', 'diff', 'macd', 'macd_signal', 'macd_hist',
-                'lst_diff', 'supertrend', 'stoch_rsi', 'stoch_k', 'stoch_d', 'obv'
+                'ema1', 'ema2', 'rsi', 'k', 'd', 'j', 'diff', 'diff1e', 'diff2m', 'diff3k',
+                'macd', 'macd_signal', 'macd_hist', 'macd_hollow', 'lst_diff', 'supertrend',
+                'stoch_rsi', 'stoch_k', 'stoch_d', 'obv'
             ]
 
             for trade in trades:
@@ -1442,7 +1490,6 @@ keep_alive_thread = threading.Thread(target=keep_alive, daemon=True)
 keep_alive_thread.start()
 logger.info("Keep-alive thread started")
 
-# Start periodic database backup thread
 db_backup_thread = threading.Thread(target=periodic_db_backup, daemon=True)
 db_backup_thread.start()
 logger.info("Database backup thread started")
