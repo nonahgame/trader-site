@@ -1292,27 +1292,68 @@ def get_performance():
             c.execute("SELECT COUNT(*) FROM trades")
             trade_count = c.fetchone()[0]
             if trade_count == 0:
-                return "No trades available for performance analysis."
+                return "No trades available for performance analysis.\nLast Buy: 0.00\nLast Sell: 0.00"
+
+            # Fetch last buy trade
+            c.execute("""
+                SELECT symbol, price, time 
+                FROM trades 
+                WHERE action = 'buy' 
+                ORDER BY time DESC 
+                LIMIT 1
+            """)
+            last_buy = c.fetchone()
+            last_buy_str = (f"BUY {last_buy[0]} {float(last_buy[1]):.2f} at {last_buy[2]}" 
+                           if last_buy else "BUY: 0.00")
+
+            # Fetch last sell trade
+            c.execute("""
+                SELECT symbol, price, time 
+                FROM trades 
+                WHERE action = 'sell' 
+                ORDER BY time DESC 
+                LIMIT 1
+            """)
+            last_sell = c.fetchone()
+            last_sell_str = (f"SELL {last_sell[0]} {float(last_sell[1]):.2f} at {last_sell[2]}" 
+                            if last_sell else "SELL: 0.00")
+
+            # Fetch performance by timeframe
             c.execute("SELECT DISTINCT timeframe FROM trades")
             timeframes = [row[0] for row in c.fetchall()]
             message = "Performance Statistics by Timeframe:\n"
             for tf in timeframes:
-                c.execute("SELECT MIN(time), MAX(time), SUM(profit), SUM(return_profit), COUNT(*) FROM trades WHERE action='sell' AND profit IS NOT NULL AND timeframe=?", (tf,))
+                c.execute("""
+                    SELECT MIN(time), MAX(time), SUM(profit), SUM(return_profit), COUNT(*) 
+                    FROM trades 
+                    WHERE action = 'sell' AND profit IS NOT NULL AND timeframe = ?
+                """, (tf,))
                 result = c.fetchone()
-                min_time, max_time, total_profit_db, total_return_profit_db, win_trades = result if result else (None, None, None, None, 0)
-                c.execute("SELECT COUNT(*) FROM trades WHERE action='sell' AND profit < 0 AND timeframe=?", (tf,))
+                min_time, max_time, total_profit_db, total_return_profit_db, win_trades = (
+                    result if result else (None, None, None, None, 0)
+                )
+                c.execute("""
+                    SELECT COUNT(*) 
+                    FROM trades 
+                    WHERE action = 'sell' AND profit < 0 AND timeframe = ?
+                """, (tf,))
                 loss_trades = c.fetchone()[0]
-                duration = (datetime.strptime(max_time, "%Y-%m-%d %H:%M:%S") - datetime.strptime(min_time, "%Y-%m-%d %H:%M:%S")).total_seconds() / 3600 if min_time and max_time else "N/A"
-                total_profit_db = total_profit_db if total_profit_db is not None else 0
-                total_return_profit_db = total_return_profit_db if total_return_profit_db is not None else 0
+                duration = (datetime.strptime(max_time, "%Y-%m-%d %H:%M:%S") - 
+                           datetime.strptime(min_time, "%Y-%m-%d %H:%M:%S")).total_seconds() / 3600 \
+                           if min_time and max_time else "N/A"
+                total_profit_db = round(float(total_profit_db), 2) if total_profit_db is not None else 0.00
+                total_return_profit_db = round(float(total_return_profit_db), 2) if total_return_profit_db is not None else 0.00
                 message += f"""
-Timeframe: {tf}
-Duration (hours): {duration if duration != "N/A" else duration}
-Win Trades: {win_trades}
-Loss Trades: {loss_trades}
-Total Profit: {total_profit_db:.2f}
-Total Return Profit: {total_return_profit_db:.2f}
-"""
+                            Timeframe: {tf}
+                            Duration (hours): {duration if duration != "N/A" else duration}
+                            Win Trades: {win_trades}
+                            Loss Trades: {loss_trades}
+                            Total Profit: {total_profit_db:.2f}
+                            Total Return Profit: {total_return_profit_db:.2f}
+                            """
+            # Append last buy and sell to the message
+            message += f"\nLast Buy: {last_buy_str}\nLast Sell: {last_sell_str}"
+
             elapsed = time.time() - start_time
             logger.debug(f"Performance data fetched in {elapsed:.3f}s")
             return message
