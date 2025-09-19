@@ -651,7 +651,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
                 f"macd_hist={(macd - macd_signal):.2f}, close={close_price:.2f}"
             )
             action = "buy"
-        elif (lst_diff >  0.01 and macd_hollow <= 0.01 and stoch_k <= 0.41  and macd < macd_signal and rsi <= 48.00):
+        elif (lst_diff >  0.01 and macd_hollow <= 0.01 and stoch_k <= 0.41  and macd < macd_signal and diff1e <= -0.01 and rsi <= 48.00):
             logger.info(
                 f"Buy triggered by Supertrend: supertrend_trend=Down, close={close_price:.2f}"
             )
