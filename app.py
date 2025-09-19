@@ -619,6 +619,11 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         elif (kdj_j > kdj_d and kdj_j > 115.00 and macd > macd_signal and ema1 > ema2 and rsi < 83.00):
             logger.info(f"Sell triggered by Supertrend: supertrend_trend=Up, close={close_price:.2f}")
             action = "sell"
+        elif (lst_diff <  0.00 and macd_hollow >= 0.01 and stoch_k >= 99.98  and macd > macd_signal and rsi <= 52.00):
+            logger.info(
+                f"Sell triggered by Supertrend: supertrend_trend=Down, close={close_price:.2f}"
+            )
+            action = "sell"
         elif (supertrend_trend == 'up' and stoch_rsi == 1.00 and stoch_k == 100.00 and stoch_d > 90.00 and obv >= 19.00 and diff1e > 0.00 and diff2m > 0.00 and diff3k > 0.00):
             logger.info(
                 f"Sell triggered by KDJ/MACD: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, "
@@ -636,6 +641,11 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
             logger.info(
                 f"Buy triggered by KDJ/MACD: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, "
                 f"macd_hist={(macd - macd_signal):.2f}, close={close_price:.2f}"
+            )
+            action = "buy"
+        elif (lst_diff >  0.01 and macd_hollow <= 0.01 and stoch_k <= 40.01  and macd < macd_signal and rsi <= 48.00):
+            logger.info(
+                f"Buy triggered by Supertrend: supertrend_trend=Down, close={close_price:.2f}"
             )
             action = "buy"
         elif (supertrend_trend == 'down' and stoch_rsi <= 0.00 and stoch_k <= 0.00 and stoch_d <= 0.15 and obv <= -13.00 and diff1e < - 0.00 and diff2m < - 0.00 and diff3k < - 0.00):
@@ -1321,7 +1331,7 @@ def get_performance():
             # Fetch performance by timeframe
             c.execute("SELECT DISTINCT timeframe FROM trades")
             timeframes = [row[0] for row in c.fetchall()]
-            message = "Performance Statistics by Timeframe:\n"
+            message = "Perfm Stcs by Timeframe:\n"
             for tf in timeframes:
                 c.execute("""
                     SELECT MIN(time), MAX(time), SUM(profit), SUM(return_profit), COUNT(*) 
@@ -1344,13 +1354,13 @@ def get_performance():
                 total_profit_db = round(float(total_profit_db), 2) if total_profit_db is not None else 0.00
                 total_return_profit_db = round(float(total_return_profit_db), 2) if total_return_profit_db is not None else 0.00
                 message += f"""
-                            Timeframe: {tf}
-                            Duration (hours): {duration if duration != "N/A" else duration}
-                            Win Trades: {win_trades}
-                            Loss Trades: {loss_trades}
-                            Total Profit: {total_profit_db:.2f}
-                            Total Return Profit: {total_return_profit_db:.2f}
-                            """
+                    Timeframe: {tf}
+                    Duration (hours): {duration if duration != "N/A" else duration}
+                    Win Trades: {win_trades}
+                    Loss Trades: {loss_trades}
+                    Total Profit: {total_profit_db:.2f}
+                    Total Return Profit: {total_return_profit_db:.2f}
+                """
             # Append last buy and sell to the message
             message += f"\nLast Buy: {last_buy_str}\nLast Sell: {last_sell_str}"
 
