@@ -219,7 +219,7 @@
                         return;
                     }
                     let html = '<table class="trade-table"><thead><tr>';
-                    const columns = ['time', 'rsi', 'j', 'macd_hollow', 'lst_diff', 'stoch_k', 'total_profit', 'message', 'obv', 'diff1e'];
+                    const columns = ['time', 'rsi', 'j', 'macd_hollow', 'lst_diff', 'stoch_k', 'diff2m', 'diff1e', 'message', 'obv'];
                     columns.forEach(col => {
                         html += '<th>' + (col.replace('_', ' ') + ' ').toUpperCase() + '</th>';
                     });
