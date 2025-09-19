@@ -230,7 +230,7 @@
                             let value = trade[col] || '';
                             let className = 'number-neutral';
                             // Apply 2 decimal places for numeric columns
-                            if (['rsi', 'j', 'macd_hollow', 'lst_diff', 'stoch_k', 'total_profit', 'diff1e', 'price', 'profit', 'obv'].includes(col) && value !== '' && value != null) {
+                            if (['rsi', 'j', 'macd_hollow', 'lst_diff', 'stoch_k', 'diff2m', 'diff1e', 'price', 'profit', 'obv'].includes(col) && value !== '' && value != null) {
                                 value = Number(value).toFixed(2);
                                 if (Number(value) > 0) className = 'number-positive';
                                 else if (Number(value) < 0) className = 'number-negative';
