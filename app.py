@@ -499,11 +499,8 @@ def add_technical_indicators(df):
         df['diff2m'] = df['macd'] - df['macd_signal']
         df['diff3k'] = df['j'] - df['d']
         df['lst_diff'] = df['ema1'].shift(1) - df['ema1']
-        #df['macd_hollow'] = 0.0
-        #df.loc[(df['macd_hist'] > 0) & (df['macd_hist'] < df['macd_hist'].shift(1)), 'macd_hollow'] = df['macd_hist']
-        #df.loc[(df['macd_hist'] < 0) & (df['macd_hist'] > df['macd_hist'].shift(1)), 'macd_hollow'] = -df['macd_hist']
-        ## initialize
-        df['macd_hollow'] = 0.0 | -0.0
+        
+        df['macd_hollow'] = 0.0
         # Long grow + Short grow (confirmed growth, keep positive)
         df.loc[(df['macd_hist'] > 0) &
         (df['macd_hist'] > df['macd_hist'].shift(1)), 'macd_hollow'] = df['macd_hist']
