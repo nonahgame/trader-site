@@ -1,3 +1,4 @@
+# today works 3
 <!-- templates/trade_record.html -->
 <!DOCTYPE html>
 <html lang="en">
@@ -35,22 +36,9 @@
         body.white .background-toggle button { background-color: #4CAF50; color: white; border: none; }
         body.black .background-toggle button { background-color: #333; color: #1e90ff; border: 1px solid #444; }
 
-        .search-form, .display-form { margin-bottom: 20px; text-align: center; }
-        .search-form select, .search-form input,
-        .display-form input[type="checkbox"] { margin: 5px; font-size: 16px; }
-        .search-form button, .display-form button { padding: 8px 16px; cursor: pointer; }
-
-        .display-columns {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            margin-top: 10px;
-        }
-        .display-columns label {
-            margin: 5px 10px;
-            cursor: pointer;
-            font-size: 14px;
-        }
+        .search-form { margin-bottom: 20px; text-align: center; }
+        .search-form select, .search-form input { padding: 8px; margin: 5px; font-size: 16px; }
+        .search-form button { padding: 8px 16px; cursor: pointer; }
 
         table { width: 100%; border-collapse: collapse; margin-bottom: 20px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
         th, td { padding: 10px; text-align: left; border: 1px solid; }
@@ -114,8 +102,9 @@
 
     <h1>IfyBng Records</h1>
 
-    <!-- 🔍 Search Bar -->
+    <!-- Search + Display Section -->
     <div class="search-form">
+        <!-- Search Bar -->
         <form method="POST" action="{{ url_for('trade_record', page=page) }}">
             <select name="column">
                 {% for col, tag in column_tags %}
@@ -125,21 +114,15 @@
             <input type="text" name="value" placeholder="Enter search value" required>
             <button type="submit">🔍 Search</button>
         </form>
-    </div>
 
-    <!-- 📊 Display Bar -->
-    <div class="display-form">
-        <form method="POST" action="{{ url_for('trade_record', page=page) }}">
-            <div class="display-columns">
+        <!-- Display Column Selector (Compact like Search) -->
+        <form method="POST" action="{{ url_for('trade_record', page=page) }}" style="margin-top:10px;">
+            <select name="display_columns" multiple size="1">
                 {% for col, tag in column_tags %}
-                    <label>
-                        <input type="checkbox" name="display_columns" value="{{ col }}"
-                               {% if selected_columns and col in selected_columns %}checked{% endif %}>
-                        ({{ tag }}) {{ col | replace('_',' ') | title }}
-                    </label>
+                    <option value="{{ col }}">({{ tag }}) {{ col | replace('_',' ') | title }}</option>
                 {% endfor %}
-            </div>
-            <button type="submit">📌 Display Selected</button>
+            </select>
+            <button type="submit">📊 Display</button>
         </form>
     </div>
 
