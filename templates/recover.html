@@ -1,0 +1,22 @@
+<!-- recover.html -->
+<!doctype html>
+<html><body>
+  <h2>Recovery</h2>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <ul>
+      {% for cat, msg in messages %}
+        <li><strong>{{cat}}</strong>: {{msg}}</li>
+      {% endfor %}
+      </ul>
+    {% endif %}
+  {% endwith %}
+
+  <form method="POST">
+    <label>Your account email</label>
+    <input type="email" name="email" required>
+    <button type="submit">Send recovery email</button>
+  </form>
+
+  <p><a href="{{ url_for('login') }}">Back to login</a></p>
+</body></html>
