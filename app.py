@@ -1566,7 +1566,6 @@ def trades():
             logger.error(f"Error in /trades route after {elapsed:.3f}s: {e}")
             return jsonify({"error": f"Internal server error: {str(e)}"}), 500
 
-# today works
 @app.route('/trade_record', methods=['GET', 'POST'])
 def trade_record():
     global conn
@@ -1574,8 +1573,12 @@ def trade_record():
     page = int(request.args.get('page', 1))
     per_page = 50
     offset = (page - 1) * per_page
+
     search_column = request.form.get('column') if request.method == 'POST' else None
     search_value = request.form.get('value') if request.method == 'POST' else None
+
+    # New: list of columns chosen for display (checkbox values from form)
+    selected_columns = request.form.getlist('display_columns') if request.method == 'POST' else []
 
     def _safe_float(val):
         try:
@@ -1595,7 +1598,7 @@ def trade_record():
 
             c = conn.cursor()
 
-            # Build & execute query
+            # Build & execute query (search)
             if request.method == 'POST' and search_column and search_value:
                 numeric_search_cols = {
                     'price', 'open_price', 'close_price', 'volume', 'percent_change', 'stop_loss',
@@ -1607,27 +1610,17 @@ def trade_record():
                 if search_column in numeric_search_cols:
                     try:
                         val = float(search_value)
-                        # Instead of strict =, allow LIKE match on cast text for flexibility
                         query = f"""
                             SELECT * FROM trades
-                            WHERE CAST({search_column} AS TEXT) LIKE ?
+                            WHERE {search_column} BETWEEN ? AND ?
                             ORDER BY time DESC LIMIT ? OFFSET ?
                         """
-                        params = (f'%{search_value}%', per_page, offset)
+                        params = (val - 0.0001, val + 0.0001, per_page, offset)
                     except ValueError:
-                        # fallback if not numeric at all
-                        query = f"""
-                            SELECT * FROM trades
-                            WHERE CAST({search_column} AS TEXT) LIKE ?
-                            ORDER BY time DESC LIMIT ? OFFSET ?
-                        """
+                        query = f"SELECT * FROM trades WHERE CAST({search_column} AS TEXT) LIKE ? ORDER BY time DESC LIMIT ? OFFSET ?"
                         params = (f'%{search_value}%', per_page, offset)
                 else:
-                    query = f"""
-                        SELECT * FROM trades
-                        WHERE {search_column} LIKE ?
-                        ORDER BY time DESC LIMIT ? OFFSET ?
-                    """
+                    query = f"SELECT * FROM trades WHERE {search_column} LIKE ? ORDER BY time DESC LIMIT ? OFFSET ?"
                     params = (f'%{search_value}%', per_page, offset)
                 c.execute(query, params)
             else:
@@ -1637,6 +1630,7 @@ def trade_record():
             db_columns = [desc[0] for desc in c.description]
             logger.debug("trade_record: db_columns = %s", db_columns)
 
+            # Tag mapping
             tags = ['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t',
                     'u','v','w','x','y','z','aa','ab','ac','ad','ae','af','ag','ah','ai','aj','ak','al',
                     'am','an','ao','ap','aq']
@@ -1655,8 +1649,6 @@ def trade_record():
 
             tf_map = {1: "1m", 3: "3m", 5: "5m", 15: "15m", 30: "30m", 60: "1h"}
             for trade in trades:
-                logger.debug("raw trade sample before cast: %s", {k: trade.get(k) for k in ('timeframe','order_id','message','supertrend_trend','price')})
-
                 for fld in numeric_fields:
                     if fld in trade:
                         trade[fld] = _safe_float(trade.get(fld))
@@ -1707,6 +1699,14 @@ def trade_record():
             logger.info("Rendering trade_record: page=%s trades=%d total_pages=%d (query_time=%.3fs)",
                         page, len(trades), total_pages, elapsed)
 
+            # If user picked display columns → only send those to template
+            if selected_columns:
+                filtered_trades = []
+                for t in trades:
+                    filtered_trades.append({col: t[col] for col in selected_columns if col in t})
+                trades = filtered_trades
+                column_tags = [(c, t) for c, t in column_tags if c in selected_columns]
+
             return render_template(
                 'trade_record.html',
                 trades=trades,
@@ -1716,7 +1716,8 @@ def trade_record():
                 prev_page=prev_page,
                 next_page=next_page,
                 background='white',
-                numeric_fields=numeric_fields
+                numeric_fields=numeric_fields,
+                selected_columns=selected_columns  # pass back to remember selection
             )
 
     except sqlite3.OperationalError as e:
