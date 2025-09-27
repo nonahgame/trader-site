@@ -1,0 +1,50 @@
+<!-- login.html -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"/><title>Login</title></head>
+<body>
+  <h2>Login</h2>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <ul>
+      {% for cat, msg in messages %}
+        <li><strong>{{cat}}</strong>: {{msg}}</li>
+      {% endfor %}
+      </ul>
+    {% endif %}
+  {% endwith %}
+
+  <form method="POST">
+    <div><label>Email</label><input type="email" name="email" required></div>
+    <div>
+      <label>Password</label>
+      <input id="password" type="password" name="password" required>
+      <button type="button" id="togglePwd">👁️</button>
+    </div>
+
+    {% if passcode_required %}
+    <div>
+      <label>Passcode (required)</label>
+      <input name="passcode" type="text" placeholder="Enter 10-digit passcode">
+    </div>
+    {% else %}
+    <div>
+      <label>Passcode (optional)</label>
+      <input name="passcode" type="text" placeholder="Enter passcode if provided by admin">
+    </div>
+    {% endif %}
+
+    <button type="submit">Login</button>
+  </form>
+
+  <p><a href="{{ url_for('recover_password') }}">Forgot password?</a></p>
+  <p><a href="{{ url_for('signup') }}">Create account</a></p>
+
+  <script>
+    document.getElementById('togglePwd').addEventListener('click', function(){
+      const p = document.getElementById('password');
+      p.type = p.type === 'password' ? 'text' : 'password';
+    });
+  </script>
+</body>
+</html>
