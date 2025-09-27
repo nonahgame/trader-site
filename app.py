@@ -1566,6 +1566,7 @@ def trades():
             logger.error(f"Error in /trades route after {elapsed:.3f}s: {e}")
             return jsonify({"error": f"Internal server error: {str(e)}"}), 500
 
+# today works
 @app.route('/trade_record', methods=['GET', 'POST'])
 def trade_record():
     global conn
@@ -1606,19 +1607,27 @@ def trade_record():
                 if search_column in numeric_search_cols:
                     try:
                         val = float(search_value)
-                        # ± small tolerance for float precision
+                        # Instead of strict =, allow LIKE match on cast text for flexibility
                         query = f"""
                             SELECT * FROM trades
-                            WHERE {search_column} BETWEEN ? AND ?
+                            WHERE CAST({search_column} AS TEXT) LIKE ?
                             ORDER BY time DESC LIMIT ? OFFSET ?
                         """
-                        params = (val - 0.0001, val + 0.0001, per_page, offset)
+                        params = (f'%{search_value}%', per_page, offset)
                     except ValueError:
-                        # fallback to LIKE if input isn’t numeric
-                        query = f"SELECT * FROM trades WHERE CAST({search_column} AS TEXT) LIKE ? ORDER BY time DESC LIMIT ? OFFSET ?"
+                        # fallback if not numeric at all
+                        query = f"""
+                            SELECT * FROM trades
+                            WHERE CAST({search_column} AS TEXT) LIKE ?
+                            ORDER BY time DESC LIMIT ? OFFSET ?
+                        """
                         params = (f'%{search_value}%', per_page, offset)
                 else:
-                    query = f"SELECT * FROM trades WHERE {search_column} LIKE ? ORDER BY time DESC LIMIT ? OFFSET ?"
+                    query = f"""
+                        SELECT * FROM trades
+                        WHERE {search_column} LIKE ?
+                        ORDER BY time DESC LIMIT ? OFFSET ?
+                    """
                     params = (f'%{search_value}%', per_page, offset)
                 c.execute(query, params)
             else:
