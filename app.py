@@ -1594,7 +1594,7 @@ def trade_record():
 
             c = conn.cursor()
 
-            # Build & execute query (same logic you had)
+            # Build & execute query
             if request.method == 'POST' and search_column and search_value:
                 numeric_search_cols = {
                     'price', 'open_price', 'close_price', 'volume', 'percent_change', 'stop_loss',
@@ -1604,8 +1604,19 @@ def trade_record():
                     'stoch_rsi', 'stoch_k', 'stoch_d', 'obv'
                 }
                 if search_column in numeric_search_cols:
-                    query = f"SELECT * FROM trades WHERE {search_column} = ? ORDER BY time DESC LIMIT ? OFFSET ?"
-                    params = (float(search_value), per_page, offset)
+                    try:
+                        val = float(search_value)
+                        # ± small tolerance for float precision
+                        query = f"""
+                            SELECT * FROM trades
+                            WHERE {search_column} BETWEEN ? AND ?
+                            ORDER BY time DESC LIMIT ? OFFSET ?
+                        """
+                        params = (val - 0.0001, val + 0.0001, per_page, offset)
+                    except ValueError:
+                        # fallback to LIKE if input isn’t numeric
+                        query = f"SELECT * FROM trades WHERE CAST({search_column} AS TEXT) LIKE ? ORDER BY time DESC LIMIT ? OFFSET ?"
+                        params = (f'%{search_value}%', per_page, offset)
                 else:
                     query = f"SELECT * FROM trades WHERE {search_column} LIKE ? ORDER BY time DESC LIMIT ? OFFSET ?"
                     params = (f'%{search_value}%', per_page, offset)
@@ -1614,20 +1625,16 @@ def trade_record():
                 c.execute("SELECT * FROM trades ORDER BY time DESC LIMIT ? OFFSET ?", (per_page, offset))
 
             rows = c.fetchall()
-            # IMPORTANT: get the actual column names returned by SQLite
             db_columns = [desc[0] for desc in c.description]
             logger.debug("trade_record: db_columns = %s", db_columns)
 
-            # Build tags dynamically (take as many as needed)
             tags = ['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t',
                     'u','v','w','x','y','z','aa','ab','ac','ad','ae','af','ag','ah','ai','aj','ak','al',
                     'am','an','ao','ap','aq']
             column_tags = list(zip(db_columns, tags[:len(db_columns)]))
 
-            # Convert rows into dicts using the real DB column names
             trades = [dict(zip(db_columns, row)) for row in rows]
 
-            # Only coerce numeric fields that actually exist in the returned columns
             default_numeric_fields = {
                 'price', 'open_price', 'close_price', 'volume', 'percent_change', 'stop_loss',
                 'take_profit', 'profit', 'total_profit', 'return_profit', 'total_return_profit',
@@ -1637,48 +1644,35 @@ def trade_record():
             }
             numeric_fields = [f for f in db_columns if f in default_numeric_fields]
 
-            # Format and coerce fields safely
             tf_map = {1: "1m", 3: "3m", 5: "5m", 15: "15m", 30: "30m", 60: "1h"}
             for trade in trades:
-                # Log sample to help debug (will show what values are mapped to which keys)
                 logger.debug("raw trade sample before cast: %s", {k: trade.get(k) for k in ('timeframe','order_id','message','supertrend_trend','price')})
 
-                # numeric conversions
                 for fld in numeric_fields:
                     if fld in trade:
                         trade[fld] = _safe_float(trade.get(fld))
 
-                # timeframe: if numeric or numeric-string convert to friendly label
                 if 'timeframe' in trade:
                     tf_val = trade.get('timeframe')
                     if tf_val is None or tf_val == '':
                         trade['timeframe'] = None
                     else:
-                        # try convert to int then map; otherwise keep original string
                         try:
                             trade['timeframe'] = tf_map.get(int(tf_val), str(tf_val))
                         except Exception:
-                            # leave as-is (string maybe '1m' already)
                             trade['timeframe'] = str(tf_val)
 
-                # order_id: ensure string (or empty)
                 if 'order_id' in trade:
                     oid = trade.get('order_id')
                     trade['order_id'] = '' if oid is None else str(oid)
 
-                # message: ensure string-friendly
                 if 'message' in trade:
                     msg = trade.get('message')
-                    if msg is None:
-                        trade['message'] = ''
-                    else:
-                        trade['message'] = str(msg)
+                    trade['message'] = '' if msg is None else str(msg)
 
-                # Ensure supertrend_trend is either int 1/0 or a readable string
-                # Map supertrend_trend to Up/Down
                 if 'supertrend_trend' in trade:
                     st = trade.get('supertrend_trend')
-                    label = "Down"  # default fallback
+                    label = "Down"
                     try:
                         st_i = int(float(st))
                         if st_i == 1:
@@ -1688,14 +1682,12 @@ def trade_record():
                     except Exception:
                         if str(st).lower() in ("up", "down"):
                             label = str(st).capitalize()
-                    trade['supertrend_trend'] = label # maybe 'Up'/'Down' already
+                    trade['supertrend_trend'] = label
 
-                # action: normalize to upper-case string (BUY/SELL) if present
                 if 'action' in trade:
                     act = trade.get('action')
                     trade['action'] = str(act).upper() if act is not None else ''
 
-            # get total count for pagination
             c.execute("SELECT COUNT(*) FROM trades")
             total_trades = c.fetchone()[0]
             total_pages = (total_trades + per_page - 1) // per_page
@@ -1775,4 +1767,4 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 4040))
     logger.info(f"Starting Flask server on port {port}")
     asyncio.run(main())
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=True)
