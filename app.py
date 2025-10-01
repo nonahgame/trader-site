@@ -2064,4 +2064,4 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 4040))
     logger.info(f"Starting Flask server on port {port}")
     asyncio.run(main())
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=port, debug=False)
