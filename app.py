@@ -5,9 +5,6 @@ import pandas as pd
 import numpy as np
 import sqlite3
 import time
-import uuid
-import smtplib
-import hashlib
 from datetime import datetime, timedelta
 import pytz
 import ccxt
@@ -22,9 +19,6 @@ from flask import Flask, render_template, jsonify, request, redirect, url_for, s
 import atexit
 import asyncio
 from dotenv import load_dotenv
-from email.message import EmailMessage
-from functools import wraps
-from werkzeug.security import generate_password_hash, check_password_hash
 
 pd.set_option('future.no_silent_downcasting', True)
 
@@ -83,15 +77,6 @@ GITHUB_PATH = os.getenv("GITHUB_PATH", "rnn_bot.db")
 BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "BINANCE_API_KEY")
 BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET", "BINANCE_API_SECRET")
 AMOUNTS = float(os.getenv("AMOUNTS", "AMOUNTS"))
-
-# ensure these exist in ENV or set defaults
-PASSCODE_REQUIRED = os.getenv("PASSCODE_REQUIRED", "False").lower() in ("1","true","yes")
-PASSCODE_VALUE = os.getenv("PASSCODE_VALUE", "")  # admin-managed 10-digit code
-UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", "./uploads")
-MAX_CONTENT_LENGTH = int(os.getenv("MAX_CONTENT_LENGTH", 50 * 1024 * 1024))
-
-# ensure upload dir exists
-#os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # GitHub API setup
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_PATH}"
@@ -1424,64 +1409,7 @@ Total Return Profit: {total_return_profit_db:.2f}
             logger.error(f"Error fetching trade counts after {elapsed:.3f}s: {e}")
             conn = None
             return f"Error fetching trade counts: {str(e)}"
-# 6B *
-def set_database(first_attempt=True):
-    #-- Create this once (e.g., via sqlite3 CLI or a setup script)
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT UNIQUE NOT NULL,
-        first_name TEXT,
-        last_name TEXT,
-        dob TEXT,                 #-- store as ISO YYYY-MM-DD
-        country TEXT,
-        country_code TEXT,        #-- phone country code
-        phone TEXT,
-        address TEXT,
-        id_front TEXT,            #-- filepath of stored front ID
-        id_back TEXT,             #-- filepath of stored back ID
-        state TEXT,
-        occupation TEXT,
-        religion TEXT,
-        gender TEXT,
-        password_hash TEXT NOT NULL,
-        passcode_enabled INTEGER DEFAULT 0,  #-- optional per-user (0/1)
-        is_admin INTEGER DEFAULT 0,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        recovery_token TEXT,
-        recovery_expires INTEGER   #-- unix timestamp expiry for recovery
-    );
-    upload_to_github(db_path, 'rnn_bot.db')
-    return True
-
-# email helper (simple)
-def send_email(to_email: str, subject: str, body: str):
-    try:
-        host = os.getenv("SMTP_HOST")
-        port = int(os.getenv("SMTP_PORT", 587))
-        user = os.getenv("SMTP_USER")
-        pwd = os.getenv("SMTP_PASS")
-        frm = os.getenv("SMTP_FROM", user)
-
-        if not host or not user:
-            current_app.logger.warning("SMTP not configured, skipping email send.")
-            return False
-
-        msg = EmailMessage()
-        msg["From"] = frm
-        msg["To"] = to_email
-        msg["Subject"] = subject
-        msg.set_content(body)
-
-        server = smtplib.SMTP(host, port, timeout=10)
-        server.starttls()
-        server.login(user, pwd)
-        server.send_message(msg)
-        server.quit()
-        return True
-    except Exception as e:
-        current_app.logger.exception("Failed to send email: %s", e)
-        return False
-
+            
 def safe_float(val, default=0.00):
     try:
         return float(val)
@@ -1639,7 +1567,7 @@ def trades():
             return jsonify({"error": f"Internal server error: {str(e)}"}), 500
 
 @app.route('/trade_record', methods=['GET', 'POST'])
-@login_required
+###@login_required
 def trade_record():
     global conn
     start_time = time.time()
@@ -1801,220 +1729,6 @@ def trade_record():
         elapsed = time.time() - start_time
         logger.exception("Unhandled error in trade_record after %.3fs", elapsed)
         return jsonify({"error": f"Internal server error: {str(e)}"}), 500
-# 7B *
-@app.route('/admin')
-@login_required
-def admin_dashboard():
-    if not session.get("is_admin"):
-        return "Forbidden", 403
-    # admin logic...
-
-# login_required decorator using session
-def login_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not session.get("user_id"):
-            return redirect(url_for("login", next=request.path))
-        return f(*args, **kwargs)
-    return decorated
-
-# helpers to fetch user
-def get_user_by_email(email):
-    global conn, db_lock
-    with db_lock:
-        c = conn.cursor()
-        c.execute("SELECT * FROM users WHERE email = ?", (email,))
-        row = c.fetchone()
-        return dict(row) if row else None
-
-def get_user_by_id(user_id):
-    global conn, db_lock
-    with db_lock:
-        c = conn.cursor()
-        c.execute("SELECT * FROM users WHERE id = ?", (user_id,))
-        row = c.fetchone()
-        return dict(row) if row else None
-
-# ROUTES
-@app.route("/signup", methods=["GET", "POST"])
-def signup():
-    global conn, db_lock
-    if request.method == "POST":
-        email = request.form.get("email", "").strip().lower()
-        first_name = request.form.get("first_name", "").strip()
-        last_name = request.form.get("last_name", "").strip()
-        dob = request.form.get("dob", "")
-        country = request.form.get("country", "")
-        country_code = request.form.get("country_code", "")
-        phone = request.form.get("phone", "").strip()
-        address = request.form.get("address", "").strip()
-        state = request.form.get("state", "")
-        occupation = request.form.get("occupation", "")
-        religion = request.form.get("religion", "")
-        gender = request.form.get("gender", "")
-        password = request.form.get("password", "")
-        # file uploads: id front/back
-        id_front = request.files.get("id_front")
-        id_back = request.files.get("id_back")
-
-        # basic validation
-        if not email or not password:
-            flash("Email and password are required.", "error")
-            return render_template("signup.html")
-
-        # save files
-        id_front_path = None
-        id_back_path = None
-        timestamp = int(time.time())
-        try:
-            if id_front:
-                fn = f"{timestamp}_front_{uuid.uuid4().hex}_{id_front.filename}"
-                id_front.save(os.path.join(UPLOAD_FOLDER, fn))
-                id_front_path = fn
-            if id_back:
-                fn = f"{timestamp}_back_{uuid.uuid4().hex}_{id_back.filename}"
-                id_back.save(os.path.join(UPLOAD_FOLDER, fn))
-                id_back_path = fn
-        except Exception as e:
-            current_app.logger.exception("Failed to save uploaded ID files: %s", e)
-            flash("Failed to save ID files.", "error")
-            return render_template("signup.html")
-
-        pwd_hash = generate_password_hash(password)
-
-        with db_lock:
-            c = conn.cursor()
-            try:
-                c.execute("""
-                    INSERT INTO users
-                    (email, first_name, last_name, dob, country, country_code, phone, address,
-                     id_front, id_back, state, occupation, religion, gender, password_hash)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (email, first_name, last_name, dob, country, country_code, phone, address,
-                      id_front_path, id_back_path, state, occupation, religion, gender, pwd_hash))
-                conn.commit()
-                flash("Signup successful. Please login.", "success")
-                return redirect(url_for("login"))
-            except sqlite3.IntegrityError:
-                flash("An account with this email already exists.", "error")
-            except Exception as e:
-                current_app.logger.exception("Error creating user: %s", e)
-                flash("Failed to create account.", "error")
-
-    return render_template("signup.html")
-
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    global conn, db_lock
-    if request.method == "POST":
-        email = request.form.get("email", "").strip().lower()
-        password = request.form.get("password", "")
-        passcode_input = request.form.get("passcode", "").strip()
-
-        user = get_user_by_email(email)
-        if not user:
-            flash("Invalid credentials.", "error")
-            return render_template("login.html")
-
-        if not check_password_hash(user["password_hash"], password):
-            flash("Invalid credentials.", "error")
-            return render_template("login.html")
-
-        # Evaluate passcode requirement:
-        #  - global PASSCODE_REQUIRED controls whether login requires passcode
-        #  - optionally per-user passcode_enabled can be used (if you want per-user opt-in)
-        if PASSCODE_REQUIRED:
-            # check either env value OR (optional) per-user passcode_enabled + admin-supplied passcode.
-            if not passcode_input:
-                flash("Passcode is required by admin.", "error")
-                return render_template("login.html")
-            # compare with PASSCODE_VALUE (string)
-            if str(passcode_input) != str(PASSCODE_VALUE):
-                flash("Invalid passcode.", "error")
-                return render_template("login.html")
-
-        # Login success
-        session["user_id"] = user["id"]
-        session["user_email"] = user["email"]
-        # optional: is_admin
-        session["is_admin"] = bool(user.get("is_admin"))
-        flash("Logged in successfully.", "success")
-        next_url = request.args.get("next") or url_for("trade_record")
-        return redirect(next_url)
-
-    # GET
-    return render_template("login.html", passcode_required=PASSCODE_REQUIRED)
-
-
-@app.route("/logout")
-def logout():
-    session.pop("user_id", None)
-    session.pop("user_email", None)
-    session.pop("is_admin", None)
-    flash("Logged out.", "info")
-    return redirect(url_for("login"))
-
-
-@app.route("/recover-password", methods=["GET", "POST"])
-def recover_password():
-    global conn, db_lock
-    if request.method == "POST":
-        email = request.form.get("email", "").strip().lower()
-        # find user
-        user = get_user_by_email(email)
-        if not user:
-            flash("If that account exists, a recovery email has been sent.", "info")
-            return render_template("recover.html")
-
-        token = uuid.uuid4().hex
-        expires_at = int((datetime.utcnow() + timedelta(hours=1)).timestamp())
-
-        with db_lock:
-            c = conn.cursor()
-            c.execute("UPDATE users SET recovery_token = ?, recovery_expires = ? WHERE id = ?", (token, expires_at, user["id"]))
-            conn.commit()
-
-        # build recovery link (you may change domain)
-        recovery_link = url_for("reset_password", token=token, _external=True)
-        body = f"Hello,\n\nUse this link to reset your password (valid for 1 hour):\n\n{recovery_link}\n\nIf you didn't request this, ignore."
-        send_email(user["email"], "Password recovery", body)
-
-        flash("If that account exists, a recovery email has been sent.", "info")
-        return render_template("recover.html")
-
-    return render_template("recover.html")
-
-
-@app.route("/reset-password/<token>", methods=["GET", "POST"])
-def reset_password(token):
-    global conn, db_lock
-    with db_lock:
-        c = conn.cursor()
-        c.execute("SELECT * FROM users WHERE recovery_token = ?", (token,))
-        row = c.fetchone()
-        if not row:
-            flash("Invalid or expired token.", "error")
-            return redirect(url_for("login"))
-        user = dict(row)
-        if not user.get("recovery_expires") or int(user["recovery_expires"]) < int(time.time()):
-            flash("Token expired.", "error")
-            return redirect(url_for("login"))
-
-    if request.method == "POST":
-        new_pass = request.form.get("password", "")
-        if not new_pass:
-            flash("Password required.", "error")
-            return render_template("reset_password.html", token=token)
-        pwd_hash = generate_password_hash(new_pass)
-        with db_lock:
-            c = conn.cursor()
-            c.execute("UPDATE users SET password_hash = ?, recovery_token = NULL, recovery_expires = NULL WHERE id = ?", (pwd_hash, user["id"]))
-            conn.commit()
-        flash("Password updated. Please login.", "success")
-        return redirect(url_for("login"))
-
-    return render_template("reset_password.html", token=token)
 # 8 *
 # Start background threads
 def start_background_threads():
