@@ -582,6 +582,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
     macd_signal = latest['macd_signal'] if not pd.isna(latest['macd_signal']) else 0.0
     macd_hist = latest['macd_hist'] if not pd.isna(latest['macd_hist']) else 0.0
     rsi = latest['rsi'] if not pd.isna(latest['rsi']) else 0.0
+    diff = latest['diff'] if not pd.isna(latest['diff']) else 0.0
     lst_diff = latest['lst_diff'] if not pd.isna(latest['lst_diff']) else 0.0
     diff3k = latest['diff3k'] if not pd.isna(latest['diff3k']) else 0.0
     diff2m = latest['diff2m'] if not pd.isna(latest['diff2m']) else 0.0
@@ -618,32 +619,39 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         elif close_price >= take_profit:
             logger.info("Take-profit triggered.")
             action = "sell"
-        elif (lst_diff < -0.10 and macd_hollow >= 0.00 and stoch_rsi >= 0.99 and stoch_k >= 99.99 and stoch_d >= 95.97 and diff1e > 1.00 and rsi > 72 and obv >= 919.00):
-            logger.info(f"Sell triggered by macd_hollow: macd_hollow=Up, close={close_price:.2f}")
-            action = "sell"
-        elif (kdj_j > kdj_d and kdj_j > 115.00 and macd > macd_signal and ema1 > ema2 and rsi < 83.00):
+        elif (diff <= -0.00 and diff2m < -0.00):
             logger.info(f"Sell triggered by Supertrend: supertrend_trend=Up, close={close_price:.2f}")
             action = "sell"
-        elif (lst_diff <  -0.01 and macd_hollow >= 0.11 and stoch_k >= 99.98  and macd > macd_signal and rsi <= 72.00):
-            logger.info(f"Sell triggered by Supertrend: supertrend_trend=Down, close={close_price:.2f}")
+        elif (lst_diff < -0.10 and macd_hollow >= 0.00 and stoch_rsi >= 0.99 and stoch_k >= 99.99 and stoch_d >= 95.97 and diff1e > 1.00 and rsi > 82 and obv >= 1219.00):
+            logger.info(f"Sell triggered by macd_hollow: macd_hollow=Up, close={close_price:.2f}")
             action = "sell"
-        elif (supertrend_trend == 'up' and stoch_rsi >= 1.00 and stoch_k >= 100.00 and stoch_d > 94.00 and obv >= 919.00 and diff1e > 0.00 and diff2m > 0.00 and diff3k > 0.00 and rsi > 65.00):
-            logger.info(f"Sell triggered by KDJ/MACD: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, "f"macd_hist={(macd - macd_signal):.2f}, close={close_price:.2f}")
-            action = "sell"
+        #elif (kdj_j > kdj_d and kdj_j > 115.00 and macd > macd_signal and ema1 > ema2 and rsi < 83.00):
+        #    logger.info(f"Sell triggered by Supertrend: supertrend_trend=Up, close={close_price:.2f}")
+        #    action = "sell"
+        #elif (lst_diff <  -0.01 and macd_hollow >= 0.11 and stoch_k >= 99.98  and macd > macd_signal and rsi <= 72.00):
+        #    logger.info(f"Sell triggered by Supertrend: supertrend_trend=Down, close={close_price:.2f}")
+        #    action = "sell"
+        #elif (supertrend_trend == 'up' and stoch_rsi >= 1.00 and stoch_k >= 100.00 and stoch_d > 94.00 and obv >= 919.00 and diff1e > 0.00 and diff2m > 0.00 and diff3k > 0.00 and rsi > 65.00):
+        #    logger.info(f"Sell triggered by KDJ/MACD: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, "f"macd_hist={(macd - macd_signal):.2f}, close={close_price:.2f}")
+        #    action = "sell"
 
     if action == "hold" and position is None:
-        if (lst_diff >  1.01 and macd_hollow <= -0.01 and stoch_rsi <= 0.01 and stoch_k <= 0.01 and stoch_d <= 25.00 and obv <= -1213.00 and rsi < 23.00):
+        if (diff >= 0.00 and diff2m > 0.00):
             logger.info(f"Buy triggered by macd_hollow: macd_hollow=Down, close={close_price:.2f}")
             action = "buy"
-        elif (kdj_j < kdj_d and kdj_j < -15.00 and macd < macd_signal and ema1 < ema2 and rsi < 17.00 and stoch_k <= 0.01 and obv <= -1213.00):
-            logger.info(f"Buy triggered by KDJ/MACD: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, "f"macd_hist={(macd - macd_signal):.2f}, close={close_price:.2f}")
-            action = "buy"
-        elif (lst_diff >  0.01 and macd_hollow <= 0.00 and stoch_k <= 0.01  and macd < macd_signal and diff1e <= -0.01 and rsi <= 17.00 and obv <= -1213.00):
-            logger.info(f"Buy triggered by Supertrend: supertrend_trend=Down, close={close_price:.2f}")
-            action = "buy"
-        elif (supertrend_trend == 'down' and stoch_rsi <= 0.00 and stoch_k <= 0.01 and stoch_d <= 0.15 and obv <= -1213.00 and diff1e < - 0.00 and diff2m < - 0.00 and diff3k < - 0.00 and rsi < 23.00):
-            logger.info(f"Buy triggered by Supertrend: supertrend_trend=Down, close={close_price:.2f}")
-            action = "buy"
+    #if action == "hold" and position is None:
+        #if (lst_diff >  1.01 and macd_hollow <= -0.01 and stoch_rsi <= 0.01 and stoch_k <= 0.01 and stoch_d <= 25.00 and obv <= -1213.00 and rsi < 23.00):
+        #    logger.info(f"Buy triggered by macd_hollow: macd_hollow=Down, close={close_price:.2f}")
+        #    action = "buy"
+        #elif (kdj_j < kdj_d and kdj_j < -15.00 and macd < macd_signal and ema1 < ema2 and rsi < 17.00 and stoch_k <= 0.01 and obv <= -1213.00):
+        #    logger.info(f"Buy triggered by KDJ/MACD: kdj_j={kdj_j:.2f}, kdj_d={kdj_d:.2f}, "f"macd_hist={(macd - macd_signal):.2f}, close={close_price:.2f}")
+        #    action = "buy"
+        #elif (lst_diff >  0.01 and macd_hollow <= 0.00 and stoch_k <= 0.01  and macd < macd_signal and diff1e <= -0.01 and rsi <= 17.00 and obv <= -1213.00):
+        #    logger.info(f"Buy triggered by Supertrend: supertrend_trend=Down, close={close_price:.2f}")
+        #    action = "buy"
+        #elif (supertrend_trend == 'down' and stoch_rsi <= 0.00 and stoch_k <= 0.01 and stoch_d <= 0.15 and obv <= -1213.00 and diff1e < - 0.00 and diff2m < - 0.00 and diff3k < - 0.00 and rsi < 23.00):
+        #    logger.info(f"Buy triggered by Supertrend: supertrend_trend=Down, close={close_price:.2f}")
+        #    action = "buy"
 
     if action == "buy" and position is not None:
         logger.debug("Prevented consecutive buy order.")
