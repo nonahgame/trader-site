@@ -632,7 +632,16 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
             logger.info("Take-profit triggered.")
             action = "sell"
         elif (diff < -0.00 and macd_hollow < -0.00):
-            logger.info(f"Sell triggered by Supertrend: supertrend_trend=Up, close={close_price:.2f}")
+            logger.info(f"Sell triggered by macd_hollow: macd_hollow=Up, close={close_price:.2f}")
+            action = "sell"
+        elif (diff < -0.00 and lst_diff > 0.00):
+            logger.info(f"Sell triggered by lst_diff: lst_diff=Up, close={close_price:.2f}")
+            action = "sell"
+        elif (stoch_rsi >= 0.99 and stoch_k >= 99.99 and rsi > 60.00):
+            logger.info(f"Sell triggered by stoch_rsi: stoch_rsi=Up, close={close_price:.2f}")
+            action = "sell"
+        elif (diff < -0.00 and diff3k < 0.00):
+            logger.info(f"Sell triggered by lst_diff: lst_diff=Up, close={close_price:.2f}")
             action = "sell"
         #elif (lst_diff < -0.10 and macd_hollow >= 0.00 and stoch_rsi >= 0.99 and stoch_k >= 99.99 and stoch_d >= 95.97 and diff1e > 1.00 and rsi > 82 and obv >= 1219.00):
          #   logger.info(f"Sell triggered by macd_hollow: macd_hollow=Up, close={close_price:.2f}")
@@ -649,7 +658,10 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
 
     if action == "hold" and position is None:
         if (diff > 0.00 and diff3k > 0.00):
-            logger.info(f"Buy triggered by macd_hollow: macd_hollow=Down, close={close_price:.2f}")
+            logger.info(f"Buy triggered by diff3k: diff3k=Down, close={close_price:.2f}")
+            action = "buy"
+        elif (stoch_rsi <= 0.01 and stoch_k <= 0.01 and rsi < 18.00):
+            logger.info(f"Buy triggered by stoch_rsi: stoch_rsi=Down, close={close_price:.2f}")
             action = "buy"
     #if action == "hold" and position is None:
         #if (lst_diff >  1.01 and macd_hollow <= -0.01 and stoch_rsi <= 0.01 and stoch_k <= 0.01 and stoch_d <= 25.00 and obv <= -1213.00 and rsi < 23.00):
