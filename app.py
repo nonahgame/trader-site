@@ -657,7 +657,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         #    action = "sell"
 
     if action == "hold" and position is None:
-        if (diff > 0.00 and diff3k > 0.00):
+        if (diff > 0.00 and diff3k > 0.00 and rsi < 59.00)):
             logger.info(f"Buy triggered by diff3k: diff3k=Down, close={close_price:.2f}")
             action = "buy"
         elif (stoch_rsi <= 0.01 and stoch_k <= 0.01 and rsi < 18.00):
