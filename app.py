@@ -631,16 +631,16 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         elif close_price >= take_profit:
             logger.info("Take-profit triggered.")
             action = "sell"
-        elif (diff < -0.00 and macd_hollow < -0.00 and rsi >= 36.00):
+        elif (diff < -0.00 and macd_hollow < -0.00 and rsi >= 36.00 and stoch_rsi >= 0.65):
             logger.info(f"Sell triggered by macd_hollow: macd_hollow=Up, close={close_price:.2f}")
             action = "sell"
-        elif (diff < -0.00 and lst_diff > 0.00 and rsi >= 36.00):
+        elif (diff < -0.00 and lst_diff < -0.00 and rsi >= 36.00 and stoch_rsi >= 0.60):
             logger.info(f"Sell triggered by lst_diff: lst_diff=Up, close={close_price:.2f}")
             action = "sell"
         elif (stoch_rsi >= 0.99 and stoch_k >= 99.99 and rsi > 60.00):
             logger.info(f"Sell triggered by stoch_rsi: stoch_rsi=Up, close={close_price:.2f}")
             action = "sell"
-        elif (diff < -0.00 and diff3k < 0.00 and rsi >= 36.00):
+        elif (diff < -0.00 and diff3k < 0.00 and rsi >= 36.00 and stoch_rsi >= 0.65):
             logger.info(f"Sell triggered by lst_diff: lst_diff=Up, close={close_price:.2f}")
             action = "sell"
         #elif (lst_diff < -0.10 and macd_hollow >= 0.00 and stoch_rsi >= 0.99 and stoch_k >= 99.99 and stoch_d >= 95.97 and diff1e > 1.00 and rsi > 82 and obv >= 1219.00):
@@ -657,7 +657,7 @@ def ai_decision(df, stop_loss_percent=STOP_LOSS_PERCENT, take_profit_percent=TAK
         #    action = "sell"
 
     if action == "hold" and position is None:
-        if (diff > 0.00 and diff3k > 0.00 and rsi < 59.00):
+        if (diff > 0.00 and diff3k > 0.00 and rsi < 59.00 and stoch_rsi <= 0.30):
             logger.info(f"Buy triggered by diff3k: diff3k=Down, close={close_price:.2f}")
             action = "buy"
         elif (stoch_rsi <= 0.01 and stoch_k <= 0.01 and rsi < 18.00):
